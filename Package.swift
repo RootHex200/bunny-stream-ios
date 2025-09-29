@@ -14,14 +14,14 @@ let package = Package(
     .library(name: "BunnyStreamCameraUpload", targets: ["BunnyStreamCameraUpload"])
   ],
   dependencies: [
-    .package(url: "https://github.com/apple/swift-openapi-generator", exact: "1.7.0"),
-    .package(url: "https://github.com/apple/swift-openapi-runtime", exact: "1.8.0"),
-    .package(url: "https://github.com/apple/swift-openapi-urlsession", exact: "1.0.2"),
+    .package(url: "https://github.com/apple/swift-openapi-generator", from: "1.0.0"),
+    .package(url: "https://github.com/apple/swift-openapi-runtime", from: "1.0.0"),
+    .package(url: "https://github.com/apple/swift-openapi-urlsession", from: "1.0.0"),
     .package(url: "https://github.com/tus/TUSKit.git", branch: "main"),
     .package(url: "https://github.com/onevcat/Kingfisher.git", branch: "master"),
     .package(url: "https://github.com/dagronf/SwiftSubtitles.git", branch: "main"),
-    .package(url: "https://github.com/googleads/swift-package-manager-google-interactive-media-ads-ios.git", exact: "3.18.4"),
-    .package(url: "https://github.com/shogo4405/HaishinKit.swift", exact: "1.7.3")
+    .package(url: "https://github.com/googleads/swift-package-manager-google-interactive-media-ads-ios.git", from: "3.18.4"),
+    .package(url: "https://github.com/shogo4405/HaishinKit.swift", from: "1.7.3")
   ],
   targets: [
     .target(
