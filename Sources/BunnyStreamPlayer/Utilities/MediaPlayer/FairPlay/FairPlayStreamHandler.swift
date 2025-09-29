@@ -13,7 +13,11 @@ class FairPlayStreamHandler: NSObject, AVAssetResourceLoaderDelegate {
   }
   
   func setupAssetPlayback(url: URL) -> AVPlayerItem {
-    let asset = AVURLAsset(url: url)
+    let asset = AVURLAsset(url: url, options: [
+      "AVURLAssetHTTPHeaderFieldsKey": [
+        "Referer": "https://iframe.mediadelivery.net/"
+      ]
+    ])
     asset.resourceLoader.setDelegate(self, queue: DispatchQueue.main)
     return AVPlayerItem(asset: asset)
   }
@@ -61,6 +65,7 @@ private extension FairPlayStreamHandler {
     let spcRequest = SPCRequest(spc: spcData.base64EncodedString())
     request.httpBody = try JSONEncoder().encode(spcRequest)
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.addValue("https://iframe.mediadelivery.net/", forHTTPHeaderField: "Referer")
     
     let (data, _) = try await urlSession.data(for: request)
     let ckcResponse = try JSONDecoder().decode(CKCResponse.self, from: data)

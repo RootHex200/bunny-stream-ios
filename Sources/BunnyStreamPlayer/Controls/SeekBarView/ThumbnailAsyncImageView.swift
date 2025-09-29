@@ -30,6 +30,7 @@ private extension ThumbnailAsyncImageView {
       let column = positionWithinImage % video.seekThumbnail.maxColumns
       
       KFImage.url(url)
+        .setProcessor(DefaultImageProcessor.default)
         .placeholder {
           ProgressView()
         }
@@ -40,7 +41,10 @@ private extension ThumbnailAsyncImageView {
           self.thumbnailSize = .init(width: thumbnailWidth, height: thumbnailHeight)
           self.image = Image(platformImage: result.image)
         }
-        .opacity(.zero)
+        .onFailure { error in
+          print("[ThumbnailAsyncImageView] Failed to load thumbnail: \(error)")
+        }
+        .opacity(0)
       
       if let image = image {
         let scale = max(geo.size.width / thumbnailSize.width, geo.size.height / thumbnailSize.height)

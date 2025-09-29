@@ -1,5 +1,17 @@
 import AVFoundation
 import SwiftUI
+import Kingfisher
+
+// Global configuration for Kingfisher headers
+private func configureGlobalKingfisherHeaders() {
+  var headers = KingfisherManager.shared.downloader.sessionConfiguration.httpAdditionalHeaders ?? [:]
+  headers["Referer"] = "https://iframe.mediadelivery.net/"
+  KingfisherManager.shared.downloader.sessionConfiguration.httpAdditionalHeaders = headers
+  print("[BunnyStreamPlayer] Global Kingfisher headers configured")
+}
+
+// Configure headers when module loads
+private let _globalKingfisherConfig = configureGlobalKingfisherHeaders()
 
 /// A SwiftUI view that provides an integrated video player experience
 /// using BunnyStream.
@@ -99,6 +111,9 @@ public struct BunnyStreamPlayer: View {
       self.theme.images = playerIcons
     }
     FontManager.registerFonts()
+    
+    // Configure Kingfisher to use Referer header for CDN bypass
+    configureKingfisherHeaders()
   }
 
   /// The main body of the `BunnyStreamPlayer`.
@@ -133,28 +148,50 @@ public struct BunnyStreamPlayer: View {
   /// Loads the video and its configuration asynchronously.
   @MainActor
   func loadVideo() async {
+    print("[BunnyStreamPlayer] Starting to load video - ID: \(videoId), Library: \(libraryId)")
+    if token != nil {
+      print("[BunnyStreamPlayer] Using token authentication")
+    }
+    
     loadingState = .loading
     do {
+      print("[BunnyStreamPlayer] Loading video configuration...")
       let videoConfigResponse = try await videoPlayerConfigLoader.load(libraryId: libraryId, videoId: videoId, token: token, expires: expires)
+      print("[BunnyStreamPlayer] Video config loaded successfully")
+      
       var video = Video(response: videoConfigResponse)
+      print("[BunnyStreamPlayer] Video object created - Playlist URL: \(video.playlistUrl ?? "nil")")
+      
       // If Public Video (no access key), heatmap is not loaded - heatmapLoader is nil
       let heatmap = try? await heatmapLoader?.loadHeatmap(videoId: videoId, libraryId: libraryId)
       
       VideoPlayerConfig(response: videoConfigResponse).map { self.videoConfig = $0 }
+      
+      print("[BunnyStreamPlayer] Creating media player...")
       let player = MediaPlayer.make(video: video)
       self.player = player
       video.adjustLength(player.duration)
+      print("[BunnyStreamPlayer] Media player created - Duration: \(player.duration)")
+      
+      // Check for zero-duration videos
+      if player.duration <= 0.0 {
+        print("[BunnyStreamPlayer] WARNING: Video has zero or negative duration (\(player.duration))")
+        print("[BunnyStreamPlayer] This usually indicates the video is not fully processed or corrupted")
+      }
+      
       self.theme = VideoPlayerTheme(config: videoConfigResponse) ?? theme
       if let playerIcons {
         self.theme.images = playerIcons
       }
       
+      print("[BunnyStreamPlayer] Video loading completed successfully")
       loadingState = .loaded(player, video, heatmap ?? Heatmap(data: [:]))
     } catch let error as VideoPlayerError {
-      print("[BunnyStreamPlayer Error]: \(error)")
+      print("[BunnyStreamPlayer Error]: VideoPlayerError - \(error)")
       loadingState = .loaderFailed(error)
     } catch {
-      print("[BunnyStreamPlayer Error]: \(error)")
+      print("[BunnyStreamPlayer Error]: General error - \(error)")
+      print("[BunnyStreamPlayer Error]: Error type: \(type(of: error))")
       loadingState = .failed
     }
   }
@@ -205,5 +242,21 @@ public struct BunnyStreamPlayer: View {
       loadingState = .loaderFailed(.audioError)
     }
 #endif
+  }
+  
+  /// Configures Kingfisher to use Referer header for CDN bypass.
+  private func configureKingfisherHeaders() {
+    // Configure Kingfisher to use Referer header for all image requests
+    var headers = KingfisherManager.shared.downloader.sessionConfiguration.httpAdditionalHeaders ?? [:]
+    headers["Referer"] = "https://iframe.mediadelivery.net/"
+    KingfisherManager.shared.downloader.sessionConfiguration.httpAdditionalHeaders = headers
+    
+    // Also configure the default downloader
+    let downloader = KingfisherManager.shared.downloader
+    var config = downloader.sessionConfiguration
+    config.httpAdditionalHeaders = headers
+    downloader.sessionConfiguration = config
+    
+    print("[BunnyStreamPlayer] Kingfisher headers configured: \(headers)")
   }
 }

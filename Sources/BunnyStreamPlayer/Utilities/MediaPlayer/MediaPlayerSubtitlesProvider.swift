@@ -17,7 +17,9 @@ class MediaPlayerSubtitlesProvider {
         continue 
       }
       do {
-        let (data, _) = try await URLSession.shared.data(from: fullUrl)
+        var request = URLRequest(url: fullUrl)
+        request.addValue("https://iframe.mediadelivery.net/", forHTTPHeaderField: "Referer")
+        let (data, _) = try await URLSession.shared.data(for: request)
         let subtitles = try Subtitles(data: data, expectedExtension: "vtt", encoding: .utf8)
         await subtitlesActor.updateSubtitles(key: caption.languageCode, subtitles: subtitles)
       } catch {

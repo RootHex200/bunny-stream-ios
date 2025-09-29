@@ -17,7 +17,36 @@ extension MediaPlayer {
   /// let player = MediaPlayer.make(video: video)
   /// ```
   static func make(video: Video) -> MediaPlayer {
-    let url = URL(string: video.playlistUrl ?? "")!
+    print("[MediaPlayer] Creating player for video GUID: \(video.guid)")
+    print("[MediaPlayer] Playlist URL: \(video.playlistUrl ?? "nil")")
+    
+    guard let playlistUrlString = video.playlistUrl, !playlistUrlString.isEmpty else {
+      print("[MediaPlayer] ERROR: Playlist URL is nil or empty!")
+      // Create a dummy URL to prevent crash, but this will fail to play
+      let url = URL(string: "https://invalid.url")!
+      let fairPlayHandler = FairPlayStreamHandler(videoId: video.guid, libraryId: video.libraryId)
+      let subtitlesProvider = MediaPlayerSubtitlesProvider(video: video)
+      return MediaPlayer(
+        url: url,
+        fairPlayHandler: fairPlayHandler,
+        subtitlesProvider: subtitlesProvider
+      )
+    }
+    
+    guard let url = URL(string: playlistUrlString) else {
+      print("[MediaPlayer] ERROR: Invalid playlist URL format: \(playlistUrlString)")
+      // Create a dummy URL to prevent crash, but this will fail to play
+      let url = URL(string: "https://invalid.url")!
+      let fairPlayHandler = FairPlayStreamHandler(videoId: video.guid, libraryId: video.libraryId)
+      let subtitlesProvider = MediaPlayerSubtitlesProvider(video: video)
+      return MediaPlayer(
+        url: url,
+        fairPlayHandler: fairPlayHandler,
+        subtitlesProvider: subtitlesProvider
+      )
+    }
+    
+    print("[MediaPlayer] Valid URL created: \(url.absoluteString)")
     let fairPlayHandler = FairPlayStreamHandler(videoId: video.guid, libraryId: video.libraryId)
     let subtitlesProvider = MediaPlayerSubtitlesProvider(video: video)
     let mediaPlayer = MediaPlayer(
