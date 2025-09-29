@@ -19,6 +19,10 @@ public struct BunnyStreamPlayer: View {
   let videoId: String
   /// The ID of the video library.
   let libraryId: Int
+  /// The authentication token for accessing protected videos. Can be `nil` for public videos.
+  var token: String?
+  /// The expiration timestamp for the token. Can be `nil` for public videos.
+  var expires: Int?
 
   /// The loading state of the video player.
   @State private var loadingState: VideoLoadingState = .loading
@@ -53,28 +57,40 @@ public struct BunnyStreamPlayer: View {
   ///   - accessKey: The access key for authentication. Can be `nil` for public videos.
   ///   - videoId: The unique ID of the video to be played.
   ///   - libraryId: The ID of the video library.
+  ///   - token: The authentication token for accessing protected videos. Can be `nil` for public videos.
+  ///   - expires: The expiration timestamp for the token. Can be `nil` for public videos.
   ///   - playerIcons: Optional custom icons for the video player.
   ///
-  /// ### Usage Example:
+  /// ### Usage Examples:
+  /// 
+  /// **For public videos:**
   /// ```swift
-  /// struct VideoPlayerDemoView: View {
-  ///     var body: some View {
-  ///         BunnyStreamPlayer(accessKey: "your_access_key",
-  ///                          videoId: "your_video_id",
-  ///                          libraryId: 123)
-  ///         .navigationBarTitle(Text("Video Player"), displayMode: .inline)
-  ///     }
-  /// }
+  /// BunnyStreamPlayer(accessKey: nil,
+  ///                  videoId: "your_video_id",
+  ///                  libraryId: 123)
+  /// ```
+  /// 
+  /// **For protected videos with token:**
+  /// ```swift
+  /// BunnyStreamPlayer(accessKey: "your_access_key",
+  ///                  videoId: "your_video_id", 
+  ///                  libraryId: 123,
+  ///                  token: "your_token",
+  ///                  expires: 1234567890)
   /// ```
   public init(
     accessKey: String?,
     videoId: String,
     libraryId: Int,
+    token: String? = nil,
+    expires: Int? = nil,
     playerIcons: PlayerIcons? = nil
   ) {
     self.accessKey = accessKey
     self.videoId = videoId
     self.libraryId = libraryId
+    self.token = token
+    self.expires = expires
     if let accessKey {
       self.heatmapLoader = HeatmapLoader(bunnyStreamAPI: .init(accessKey: accessKey))
     }
@@ -119,7 +135,7 @@ public struct BunnyStreamPlayer: View {
   func loadVideo() async {
     loadingState = .loading
     do {
-      let videoConfigResponse = try await videoPlayerConfigLoader.load(libraryId: libraryId, videoId: videoId)
+      let videoConfigResponse = try await videoPlayerConfigLoader.load(libraryId: libraryId, videoId: videoId, token: token, expires: expires)
       var video = Video(response: videoConfigResponse)
       // If Public Video (no access key), heatmap is not loaded - heatmapLoader is nil
       let heatmap = try? await heatmapLoader?.loadHeatmap(videoId: videoId, libraryId: libraryId)

@@ -145,6 +145,65 @@ public class BunnyStreamAPI {
     }
   }
   
+  /// Retrieves playback data for the specified video including video URLs, captions path, and player settings.
+  ///
+  /// - Parameters:
+  ///   - libraryId: The ID of the video library.
+  ///   - videoId: The unique identifier of the video.
+  ///   - token: Optional authentication token for accessing the video playback data.
+  ///   - expires: Optional expiration timestamp for the provided token.
+  /// - Returns: A dictionary containing the video playback configuration.
+  /// - Throws: `BunnyStreamAPIError` if the request fails.
+  public func getVideoPlayData(libraryId: Int, videoId: String, token: String? = nil, expires: Int? = nil) async throws -> [String: Any] {
+    var urlComponents = URLComponents(string: "\(baseURL)/library/\(libraryId)/videos/\(videoId)/play")!
+    
+    // Add token and expires parameters if provided
+    var queryItems: [URLQueryItem] = []
+    if let token = token, !token.isEmpty {
+      queryItems.append(URLQueryItem(name: "token", value: token))
+    }
+    if let expires = expires {
+      queryItems.append(URLQueryItem(name: "expires", value: String(expires)))
+    }
+    
+    if !queryItems.isEmpty {
+      urlComponents.queryItems = queryItems
+    }
+    
+    guard let url = urlComponents.url else {
+      throw BunnyStreamAPIError.invalidResponse
+    }
+    
+    var request = URLRequest(url: url)
+    request.httpMethod = "GET"
+    request.addValue("application/json", forHTTPHeaderField: "Accept")
+    request.addValue("https://iframe.mediadelivery.net/", forHTTPHeaderField: "Referer")
+    request.addValue(accessKey, forHTTPHeaderField: "AccessKey")
+    
+    let (data, response) = try await urlSession.data(for: request)
+    
+    guard let httpResponse = response as? HTTPURLResponse else {
+      throw BunnyStreamAPIError.invalidResponse
+    }
+    
+    switch httpResponse.statusCode {
+    case 200:
+      let jsonObject = try JSONSerialization.jsonObject(with: data, options: [])
+      guard let dictionary = jsonObject as? [String: Any] else {
+        throw BunnyStreamAPIError.decodingError
+      }
+      return dictionary
+    case 401:
+      throw BunnyStreamAPIError.unauthorized
+    case 404:
+      throw BunnyStreamAPIError.notFound
+    case 500:
+      throw BunnyStreamAPIError.internalServerError
+    default:
+      throw BunnyStreamAPIError.httpError(httpResponse.statusCode)
+    }
+  }
+  
   /// Retrieves a paginated list of videos from the specified video library.
   ///
   /// - Parameters:
