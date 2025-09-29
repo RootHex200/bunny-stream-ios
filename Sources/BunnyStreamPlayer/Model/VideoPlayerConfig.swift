@@ -15,7 +15,20 @@ extension VideoPlayerConfig {
     guard let response else { return nil }
     self.vastTagUrl = response.vastTagUrl
     self.showHeatmap = response.showHeatmap
-    self.controls = response.controls.controlList.compactMap { VideoPlayerConfig.Control(rawValue: $0.rawValue) }
+    
+    // Parse controls from API response
+    var parsedControls = response.controls.controlList.compactMap { VideoPlayerConfig.Control(rawValue: $0.rawValue) }
+    
+    // Ensure essential controls are always included
+    let essentialControls: [VideoPlayerConfig.Control] = [.rewind, .fastForward, .play, .progress, .currentTime, .duration]
+    for control in essentialControls {
+      if !parsedControls.contains(control) {
+        parsedControls.append(control)
+      }
+    }
+    
+    self.controls = parsedControls
+    print("[VideoPlayerConfig] Parsed controls: \(self.controls.map { $0.rawValue })")
   }
 }
 

@@ -53,6 +53,7 @@ public struct VideoPlayerConfigLoader {
           print("[VideoPlayerConfigLoader] Video GUID: \(config.video.guid)")
           print("[VideoPlayerConfigLoader] Video dimensions: \(config.video.width)x\(config.video.height)")
           print("[VideoPlayerConfigLoader] Video length: \(config.video.length) seconds")
+          print("[VideoPlayerConfigLoader] Available controls: \(config.controls.controlList.map { $0.rawValue })")
           return config
         } catch {
           print("[VideoPlayerConfigLoader] JSON decode error: \(error)")

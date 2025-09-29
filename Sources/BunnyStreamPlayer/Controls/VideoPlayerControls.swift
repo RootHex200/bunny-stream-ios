@@ -81,6 +81,10 @@ extension VideoPlayerControls {
           .foregroundColor(.white)
       }
       .shouldAddView(controlsToCheck: .rewind, in: videoPlayerConfig.controls)
+      .onAppear {
+        print("[VideoPlayerControls] Rewind button - controls: \(videoPlayerConfig.controls.map { $0.rawValue })")
+        print("[VideoPlayerControls] Rewind button - should show: \(videoPlayerConfig.controls.contains(.rewind))")
+      }
       
       Spacer()
       
@@ -103,6 +107,10 @@ extension VideoPlayerControls {
           .foregroundColor(.white)
       }
       .shouldAddView(controlsToCheck: .fastForward, in: videoPlayerConfig.controls)
+      .onAppear {
+        print("[VideoPlayerControls] Fast forward button - controls: \(videoPlayerConfig.controls.map { $0.rawValue })")
+        print("[VideoPlayerControls] Fast forward button - should show: \(videoPlayerConfig.controls.contains(.fastForward))")
+      }
       
       Spacer()
     }
