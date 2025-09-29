@@ -17,6 +17,8 @@ struct ContentView: View {
   @State private var isStreamingPresented: Bool = false
   @State private var isShowingVideoIdAlert = false
   @State private var videoId: String = ""
+  @State private var token: String = ""
+  @State private var expires: String = ""
   @State private var showPublicVideoPlayer = false
   
   var body: some View {
@@ -41,6 +43,8 @@ struct ContentView: View {
           }
           Button {
             videoId = ""
+            token = ""
+            expires = ""
             isShowingVideoIdAlert = true
           } label: {
             Text("Direct Video Play")
@@ -52,20 +56,60 @@ struct ContentView: View {
         }
       }
       .navigationTitle("BunnyStream Demo")
-      .alert("Enter Video ID", isPresented: $isShowingVideoIdAlert) {
-        TextField("Video ID", text: $videoId)
-        Button("Cancel", role: .cancel) {
-          videoId = ""
+      .sheet(isPresented: $isShowingVideoIdAlert) {
+        NavigationStack {
+          Form {
+            Section("Video Information") {
+              TextField("Video ID", text: $videoId)
+                .autocapitalization(.none)
+                .disableAutocorrection(true)
+            }
+            
+            Section {
+              TextField("Token", text: $token)
+                .autocapitalization(.none)
+                .disableAutocorrection(true)
+              TextField("Expires", text: $expires)
+                .keyboardType(.numberPad)
+                .autocapitalization(.none)
+                .disableAutocorrection(true)
+            } header: {
+              Text("Authentication (Optional)")
+            } footer: {
+              Text("Leave token and expires empty for public videos. For protected videos, enter the authentication token and expiration timestamp.")
+            }
+          }
+          .formStyle(.grouped)
+          .navigationTitle("Play Video")
+          .navigationBarTitleDisplayMode(.inline)
+          .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+              Button("Play") {
+                showPublicVideoPlayer = true
+                isShowingVideoIdAlert = false
+              }
+              .disabled(videoId.isEmpty)
+              .bold()
+            }
+            ToolbarItem(placement: .navigationBarLeading) {
+              Button("Cancel") {
+                isShowingVideoIdAlert = false
+                videoId = ""
+                token = ""
+                expires = ""
+              }
+            }
+          }
         }
-        Button("Play") {
-          showPublicVideoPlayer = true
-        }
-        .disabled(videoId.isEmpty)
-      } message: {
-        Text("Please enter the ID of the video you want to play.")
       }
       .sheet(isPresented: $showPublicVideoPlayer) {
-        PublicVideoDemoView(dependenciesManager: dependenciesManager, videoId: videoId)
+        let expiresInt = Int(expires.isEmpty ? "0" : expires) ?? 0
+        PublicVideoDemoView(
+          dependenciesManager: dependenciesManager, 
+          videoId: videoId,
+          token: token.isEmpty ? nil : token,
+          expires: expiresInt == 0 ? nil : expiresInt
+        )
       }
 
     }
