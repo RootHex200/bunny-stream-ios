@@ -33,8 +33,12 @@ class VideoListViewModel: ObservableObject {
   func loadVideos(libraryId: Int64) async {
     do {
       loadingState = .loading
-      let output = try await bunnyStreamAPI.client.listVideos(path: .init(libraryId: libraryId))
-      handle(output: output)
+      let videoListResponse = try await bunnyStreamAPI.listVideos(libraryId: Int(libraryId))
+      handleVideoListResponse(videoListResponse)
+    } catch BunnyStreamAPIError.unauthorized {
+      loadingState = .failed("Unauthorized")
+    } catch BunnyStreamAPIError.internalServerError {
+      loadingState = .failed("Internal Server Error")
     } catch {
       loadingState = .failed(error.localizedDescription)
     }
@@ -42,22 +46,17 @@ class VideoListViewModel: ObservableObject {
   
   func deleteVideo(_ video: VideoResponseInfo) async {
     do {
-      let result = try await bunnyStreamAPI.client.deleteVideo(path: .init(
-        libraryId: video.libraryId,
+      try await bunnyStreamAPI.deleteVideo(
+        libraryId: Int(video.libraryId),
         videoId: video.id
-      ))
-      switch result {
-      case .ok:
-        if let index = videoInfos.firstIndex(where: { $0.id == video.id }) {
-          withAnimation {
-            _ = videoInfos.remove(at: index)
-          }
+      )
+      if let index = videoInfos.firstIndex(where: { $0.id == video.id }) {
+        withAnimation {
+          _ = videoInfos.remove(at: index)
         }
-      case _:
-        break
       }
     } catch {
-      ///
+      // Handle error silently for now
     }
   }
   
@@ -84,36 +83,31 @@ class VideoListViewModel: ObservableObject {
 
 // MARK: - Private
 private extension VideoListViewModel {
-  private func handle(output: Operations.listVideos.Output) {
-    switch output {
-    case .ok(let okResponse):
-      switch okResponse.body {
-      case .json(let viewModel):
-        guard let items = viewModel.items else { return }
-        videoInfos = items.map {
-          VideoResponseInfo(id: $0.guid ?? "",
-                            title: $0.title,
-                            thumbnailCount: $0.thumbnailCount ?? .zero,
-                            width: Float($0.width ?? .zero),
-                            height: Float($0.height ?? .zero),
-                            length: $0.length ?? .zero,
-                            libraryId: $0.videoLibraryId ?? .zero,
-                            encodeProgress: $0.encodeProgress ?? .zero,
-                            storageSize: Double($0.storageSize ?? .zero),
-                            thumbnailFileName: $0.thumbnailFileName,
-                            averageWatchTime: $0.averageWatchTime ?? .zero,
-                            views: Int($0.views ?? .zero))
-        }
-        withAnimation {
-          loadingState = .loaded
-        }
-      }
-    case .undocumented(statusCode: let statusCode, _):
-      loadingState = .failed("🥺 undocumented response: \(statusCode)")
-    case .unauthorized:
-      loadingState = .failed("Unauthorized")
-    case .internalServerError(_):
-      loadingState = .failed("Internal Server Error")
+  private func handleVideoListResponse(_ response: VideoListResponse) {
+    guard let items = response.items else { 
+      loadingState = .failed("No videos found")
+      return 
+    }
+    
+    videoInfos = items.map { video in
+      VideoResponseInfo(
+        id: video.guid ?? "",
+        title: video.title,
+        thumbnailCount: Int32(video.thumbnailCount ?? 0),
+        width: Float(video.width ?? 0),
+        height: Float(video.height ?? 0),
+        length: Int32(video.length ?? 0),
+        libraryId: Int64(video.videoLibraryId ?? 0),
+        encodeProgress: Int32(video.encodeProgress ?? 0),
+        storageSize: Double(video.storageSize ?? 0),
+        thumbnailFileName: video.thumbnailFileName,
+        averageWatchTime: Int64(video.averageWatchTime ?? 0),
+        views: video.views ?? 0
+      )
+    }
+    
+    withAnimation {
+      loadingState = .loaded
     }
   }
 }

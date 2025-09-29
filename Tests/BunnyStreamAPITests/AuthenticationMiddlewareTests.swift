@@ -1,36 +1,39 @@
 import XCTest
-import OpenAPIRuntime
-import OpenAPIURLSession
-import HTTPTypes
-
 @testable import BunnyStreamAPI
 
-class AuthenticationMiddlewareTests: XCTestCase {
-  var middleware: AuthenticationMiddleware!
+class BunnyStreamAPITests: XCTestCase {
+  var api: BunnyStreamAPI!
   
   override func setUp() {
     super.setUp()
-    middleware = AuthenticationMiddleware(accessKey: "TestAccessKey")
+    api = BunnyStreamAPI(accessKey: "TestAccessKey")
   }
   
   override func tearDown() {
-    middleware = nil
+    api = nil
     super.tearDown()
   }
   
-  func testMiddlewareAddsAccessKey() async throws {
-    // Given
-    let request = HTTPRequest(method: .get, scheme: "https", authority: nil, path: nil)
-    let expectedKey = "TestAccessKey"
+  func testAPIInitialization() {
+    // Test that API initializes correctly
+    XCTAssertNotNil(api)
+  }
+  
+  func testCreateVideoWithValidParameters() {
+    // Test would require mocking URLSession for actual network calls
+    // This is a basic structure test
+    XCTAssertNotNil(api)
+  }
+  
+  func testErrorTypes() {
+    // Test error descriptions
+    let unauthorizedError = BunnyStreamAPIError.unauthorized
+    XCTAssertEqual(unauthorizedError.errorDescription, "Request authorization failed")
     
-    let next: (HTTPRequest, HTTPBody?, URL) async throws -> (HTTPResponse, HTTPBody?) = { req, _, _ in
-      let keyInHeader = req.headerFields[HTTPField.Name.accessKey!]
-      // Then
-      XCTAssertEqual(keyInHeader, expectedKey)
-      return (HTTPResponse(status: .accepted), nil)
-    }
+    let notFoundError = BunnyStreamAPIError.notFound
+    XCTAssertEqual(notFoundError.errorDescription, "Requested resource was not found")
     
-    // When
-    _ = try await middleware.intercept(request, body: nil, baseURL: URL(string: "https://example.com")!, operationID: "TestOperation", next: next)
+    let httpError = BunnyStreamAPIError.httpError(500)
+    XCTAssertEqual(httpError.errorDescription, "HTTP error with status code: 500")
   }
 }

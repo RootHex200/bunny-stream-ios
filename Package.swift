@@ -14,9 +14,6 @@ let package = Package(
     .library(name: "BunnyStreamCameraUpload", targets: ["BunnyStreamCameraUpload"])
   ],
   dependencies: [
-    .package(url: "https://github.com/apple/swift-openapi-generator", exact: "1.7.0"),
-    .package(url: "https://github.com/apple/swift-openapi-runtime", exact: "1.8.0"),
-    .package(url: "https://github.com/apple/swift-openapi-urlsession", exact: "1.0.2"),
     .package(url: "https://github.com/tus/TUSKit.git", branch: "main"),
     .package(url: "https://github.com/onevcat/Kingfisher.git", branch: "master"),
     .package(url: "https://github.com/dagronf/SwiftSubtitles.git", branch: "main"),
@@ -26,20 +23,8 @@ let package = Package(
   targets: [
     .target(
       name: "BunnyStreamAPI",
-      dependencies: [
-        .product(
-          name: "OpenAPIRuntime",
-          package: "swift-openapi-runtime"
-        ),
-        .product(
-          name: "OpenAPIURLSession",
-          package: "swift-openapi-urlsession"
-        ),
-      ],
-      path: "Sources/BunnyStreamAPI",
-      plugins: [
-        .plugin(name: "OpenAPIGenerator", package: "swift-openapi-generator"),
-      ]
+      dependencies: [],
+      path: "Sources/BunnyStreamAPI"
     ),
     .target(
       name: "BunnyStreamUploader",

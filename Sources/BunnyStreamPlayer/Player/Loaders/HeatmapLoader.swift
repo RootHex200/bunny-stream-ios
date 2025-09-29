@@ -9,26 +9,23 @@ struct HeatmapLoader {
   }
   
   func loadHeatmap(videoId: String, libraryId: Int) async throws -> Heatmap {
-    let output = try await bunnyStreamAPI.client.getVideoHeatmap(
-      path: .init(libraryId: Int64(libraryId), videoId: videoId)
-    )
-    switch output {
-    case .ok(let okResponse):
-      switch okResponse.body {
-      case .json(let viewModel):
-        let data = viewModel.heatmap?.additionalProperties ?? [:]
-        var convertedDict = [Int: Int]()
-        for (key, value) in data {
-          if let intKey = Int(key) {
-            convertedDict[intKey] = Int(value)
-          }
+    do {
+      let heatmapData = try await bunnyStreamAPI.getVideoHeatmap(
+        libraryId: libraryId,
+        videoId: videoId
+      )
+      
+      var convertedDict = [Int: Int]()
+      for (key, value) in heatmapData {
+        if let intKey = Int(key) {
+          convertedDict[intKey] = value
         }
-        
-        return Heatmap(data: convertedDict)
       }
-    case .notFound:
+      
+      return Heatmap(data: convertedDict)
+    } catch BunnyStreamAPIError.notFound {
       throw HeatmapLoaderError.notFound
-    default:
+    } catch {
       throw HeatmapLoaderError.loadError
     }
   }

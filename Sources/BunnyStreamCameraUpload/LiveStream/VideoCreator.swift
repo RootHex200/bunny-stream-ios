@@ -12,30 +12,23 @@ final class VideoCreator {
   }
   
   func createVideo() async throws -> String? {
-    let output = try await bunnyStreamAPI.client.createVideo(
-      path: .init(libraryId: Int64(libraryId)),
-      body: .json(.CreateVideoModel(.init(title: "streaming_title")))
-    )
-
-    switch output {
-    case .ok(let okResponse):
-      if case .json(let viewModel) = okResponse.body {
-        return viewModel.guid
-      }
-    case .unauthorized:
+    do {
+      let videoId = try await bunnyStreamAPI.createVideo(
+        libraryId: libraryId,
+        title: "streaming_title"
+      )
+      return videoId
+    } catch BunnyStreamAPIError.unauthorized {
       throw VideoCreatorError.failedToCreateVideoWithReason(message: "Not authorized to create videos in this library!")
-    default:
+    } catch {
       throw VideoCreatorError.failedToCreateVideo
     }
-    throw VideoCreatorError.failedToCreateVideo
   }
   
   func deleteVideo(_ videoId: String) async throws {
-    _ = try await bunnyStreamAPI.client.deleteVideo(
-      path: .init(
-        libraryId: Int64(libraryId),
-        videoId: videoId.lowercased()
-      )
+    try await bunnyStreamAPI.deleteVideo(
+      libraryId: libraryId,
+      videoId: videoId.lowercased()
     )
   }
 }
