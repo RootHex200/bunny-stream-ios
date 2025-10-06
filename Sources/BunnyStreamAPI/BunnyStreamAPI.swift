@@ -22,15 +22,20 @@ public class BunnyStreamAPI {
   
   /// The URLSession used for network requests.
   private let urlSession: URLSession
+  
+  /// The referer value for API calls. If `nil`, uses default "https://iframe.mediadelivery.net/".
+  private let referer: String?
 
   /// Creates a new instance of the Bunny Stream SDK.
   ///
   /// - Parameters:
   ///   - accessKey: The API access key for authentication. This can be found in your Bunny Stream dashboard.
   ///   - urlSession: An optional custom URLSession for network communications. Defaults to `.shared`.
-  public init(accessKey: String, urlSession: URLSession = .shared) {
+  ///   - referer: The referer value for API calls. If `nil`, uses default "https://iframe.mediadelivery.net/".
+  public init(accessKey: String, urlSession: URLSession = .shared, referer: String? = nil) {
     self.accessKey = accessKey
     self.urlSession = urlSession
+    self.referer = referer
   }
   
   /// Creates a new video entry in the specified library.
@@ -47,7 +52,8 @@ public class BunnyStreamAPI {
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
     request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.addValue("https://iframe.mediadelivery.net/", forHTTPHeaderField: "Referer")
+    let refererValue = referer ?? "https://iframe.mediadelivery.net/"
+    request.addValue(refererValue, forHTTPHeaderField: "Referer")
     request.addValue(accessKey, forHTTPHeaderField: "AccessKey")
     
     let requestBody = CreateVideoRequest(
@@ -90,7 +96,8 @@ public class BunnyStreamAPI {
     let url = URL(string: "\(baseURL)/library/\(libraryId)/videos/\(videoId)")!
     var request = URLRequest(url: url)
     request.httpMethod = "DELETE"
-    request.addValue("https://iframe.mediadelivery.net/", forHTTPHeaderField: "Referer")
+    let refererValue = referer ?? "https://iframe.mediadelivery.net/"
+    request.addValue(refererValue, forHTTPHeaderField: "Referer")
     request.addValue(accessKey, forHTTPHeaderField: "AccessKey")
     
     let (_, response) = try await urlSession.data(for: request)
@@ -124,7 +131,8 @@ public class BunnyStreamAPI {
     let url = URL(string: "\(baseURL)/library/\(libraryId)/videos/\(videoId)/heatmap")!
     var request = URLRequest(url: url)
     request.httpMethod = "GET"
-    request.addValue("https://iframe.mediadelivery.net/", forHTTPHeaderField: "Referer")
+    let refererValue = referer ?? "https://iframe.mediadelivery.net/"
+    request.addValue(refererValue, forHTTPHeaderField: "Referer")
     request.addValue(accessKey, forHTTPHeaderField: "AccessKey")
     
     let (data, response) = try await urlSession.data(for: request)
@@ -180,7 +188,8 @@ public class BunnyStreamAPI {
     var request = URLRequest(url: url)
     request.httpMethod = "GET"
     request.addValue("application/json", forHTTPHeaderField: "Accept")
-    request.addValue("https://iframe.mediadelivery.net/", forHTTPHeaderField: "Referer")
+    let refererValue = referer ?? "https://iframe.mediadelivery.net/"
+    request.addValue(refererValue, forHTTPHeaderField: "Referer")
     request.addValue(accessKey, forHTTPHeaderField: "AccessKey")
     
     let (data, response) = try await urlSession.data(for: request)

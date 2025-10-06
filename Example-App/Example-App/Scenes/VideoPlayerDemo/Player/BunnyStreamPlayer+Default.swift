@@ -9,7 +9,7 @@ import SwiftUI
 import BunnyStreamPlayer
 
 extension BunnyStreamPlayer {
-  static func make(dependenciesManager: DependenciesManager, videoId: String, token: String? = nil, expires: Int? = nil) -> BunnyStreamPlayer {
+  static func make(dependenciesManager: DependenciesManager, videoId: String, token: String? = nil, expires: Int? = nil, referer: String? = nil) -> BunnyStreamPlayer {
     let playerIcons = PlayerIcons(play: Image(systemName: "play.fill"))
     let accessKey = dependenciesManager.accessKey.isEmpty ? nil : dependenciesManager.accessKey
     
@@ -19,6 +19,7 @@ extension BunnyStreamPlayer {
       libraryId: dependenciesManager.libraryId,
       token: token,
       expires: expires,
+      referer: referer,
       playerIcons: playerIcons
     )
   }

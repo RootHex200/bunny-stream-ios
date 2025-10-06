@@ -4,7 +4,7 @@ import SwiftUI
 public struct VideoPlayerConfigLoader {
   public init() {}
   
-  func load(libraryId: Int, videoId: String, token: String? = nil, expires: Int? = nil) async throws -> VideoConfigResponse {
+  func load(libraryId: Int, videoId: String, token: String? = nil, expires: Int? = nil, referer: String? = nil) async throws -> VideoConfigResponse {
     var urlComponents = URLComponents(string: "https://video.bunnycdn.com/library/\(libraryId)/videos/\(videoId)/play")!
     
     // Add token and expires parameters if provided
@@ -30,7 +30,8 @@ public struct VideoPlayerConfigLoader {
     var request = URLRequest(url: url)
     request.httpMethod = "GET"
     request.addValue("application/json", forHTTPHeaderField: "Accept")
-    request.addValue("https://iframe.mediadelivery.net/", forHTTPHeaderField: "Referer")
+    let refererValue = referer ?? "https://iframe.mediadelivery.net/"
+    request.addValue(refererValue, forHTTPHeaderField: "Referer")
     
     do {
       print("[VideoPlayerConfigLoader] Making network request...")

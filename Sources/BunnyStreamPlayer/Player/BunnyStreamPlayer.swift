@@ -7,11 +7,11 @@ private func configureGlobalKingfisherHeaders() {
   var headers = KingfisherManager.shared.downloader.sessionConfiguration.httpAdditionalHeaders ?? [:]
   headers["Referer"] = "https://iframe.mediadelivery.net/"
   KingfisherManager.shared.downloader.sessionConfiguration.httpAdditionalHeaders = headers
-  print("[BunnyStreamPlayer] Global Kingfisher headers configured")
+  print("[BunnyStreamPlayer] Global Kingfisher headers configured with default referer")
 }
 
 // Configure headers when module loads
-private let _globalKingfisherConfig = configureGlobalKingfisherHeaders()
+private let _globalKingfisherConfig: Void = configureGlobalKingfisherHeaders()
 
 /// A SwiftUI view that provides an integrated video player experience
 /// using BunnyStream.
@@ -35,6 +35,8 @@ public struct BunnyStreamPlayer: View {
   var token: String?
   /// The expiration timestamp for the token. Can be `nil` for public videos.
   var expires: Int?
+  /// The referer value for API calls. If `nil`, uses default "https://iframe.mediadelivery.net/".
+  var referer: String?
 
   /// The loading state of the video player.
   @State private var loadingState: VideoLoadingState = .loading
@@ -71,6 +73,7 @@ public struct BunnyStreamPlayer: View {
   ///   - libraryId: The ID of the video library.
   ///   - token: The authentication token for accessing protected videos. Can be `nil` for public videos.
   ///   - expires: The expiration timestamp for the token. Can be `nil` for public videos.
+  ///   - referer: The referer value for API calls. If `nil`, uses default "https://iframe.mediadelivery.net/".
   ///   - playerIcons: Optional custom icons for the video player.
   ///
   /// ### Usage Examples:
@@ -90,12 +93,21 @@ public struct BunnyStreamPlayer: View {
   ///                  token: "your_token",
   ///                  expires: 1234567890)
   /// ```
+  /// 
+  /// **For videos with custom referer:**
+  /// ```swift
+  /// BunnyStreamPlayer(accessKey: "your_access_key",
+  ///                  videoId: "your_video_id", 
+  ///                  libraryId: 123,
+  ///                  referer: "https://yourdomain.com")
+  /// ```
   public init(
     accessKey: String?,
     videoId: String,
     libraryId: Int,
     token: String? = nil,
     expires: Int? = nil,
+    referer: String? = nil,
     playerIcons: PlayerIcons? = nil
   ) {
     self.accessKey = accessKey
@@ -103,8 +115,9 @@ public struct BunnyStreamPlayer: View {
     self.libraryId = libraryId
     self.token = token
     self.expires = expires
+    self.referer = referer
     if let accessKey {
-      self.heatmapLoader = HeatmapLoader(bunnyStreamAPI: .init(accessKey: accessKey))
+      self.heatmapLoader = HeatmapLoader(bunnyStreamAPI: .init(accessKey: accessKey, referer: referer))
     }
     if let playerIcons {
       self.playerIcons = playerIcons
@@ -156,7 +169,7 @@ public struct BunnyStreamPlayer: View {
     loadingState = .loading
     do {
       print("[BunnyStreamPlayer] Loading video configuration...")
-      let videoConfigResponse = try await videoPlayerConfigLoader.load(libraryId: libraryId, videoId: videoId, token: token, expires: expires)
+      let videoConfigResponse = try await videoPlayerConfigLoader.load(libraryId: libraryId, videoId: videoId, token: token, expires: expires, referer: referer)
       print("[BunnyStreamPlayer] Video config loaded successfully")
       
       var video = Video(response: videoConfigResponse)
@@ -248,7 +261,8 @@ public struct BunnyStreamPlayer: View {
   private func configureKingfisherHeaders() {
     // Configure Kingfisher to use Referer header for all image requests
     var headers = KingfisherManager.shared.downloader.sessionConfiguration.httpAdditionalHeaders ?? [:]
-    headers["Referer"] = "https://iframe.mediadelivery.net/"
+    let refererValue = referer ?? "https://iframe.mediadelivery.net/"
+    headers["Referer"] = refererValue
     KingfisherManager.shared.downloader.sessionConfiguration.httpAdditionalHeaders = headers
     
     // Also configure the default downloader
@@ -257,6 +271,6 @@ public struct BunnyStreamPlayer: View {
     config.httpAdditionalHeaders = headers
     downloader.sessionConfiguration = config
     
-    print("[BunnyStreamPlayer] Kingfisher headers configured: \(headers)")
+    print("[BunnyStreamPlayer] Kingfisher headers configured with referer: \(refererValue)")
   }
 }
