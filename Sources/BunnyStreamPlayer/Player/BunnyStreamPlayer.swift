@@ -37,6 +37,8 @@ public struct BunnyStreamPlayer: View {
   var expires: Int?
   /// The referer value for API calls. If `nil`, uses default "https://iframe.mediadelivery.net/".
   var referer: String?
+  /// The cache key for offline playback. If provided, will attempt to play from cache.
+  var cacheKey: String?
 
   /// The loading state of the video player.
   @State private var loadingState: VideoLoadingState = .loading
@@ -74,6 +76,7 @@ public struct BunnyStreamPlayer: View {
   ///   - token: The authentication token for accessing protected videos. Can be `nil` for public videos.
   ///   - expires: The expiration timestamp for the token. Can be `nil` for public videos.
   ///   - referer: The referer value for API calls. If `nil`, uses default "https://iframe.mediadelivery.net/".
+  ///   - cacheKey: The cache key for offline playback. If provided and video is cached, will play from cache.
   ///   - playerIcons: Optional custom icons for the video player.
   ///
   /// ### Usage Examples:
@@ -101,6 +104,14 @@ public struct BunnyStreamPlayer: View {
   ///                  libraryId: 123,
   ///                  referer: "https://yourdomain.com")
   /// ```
+  /// 
+  /// **For offline playback with cache key:**
+  /// ```swift
+  /// BunnyStreamPlayer(accessKey: nil,
+  ///                  videoId: "your_video_id", 
+  ///                  libraryId: 123,
+  ///                  cacheKey: "my_cached_video")
+  /// ```
   public init(
     accessKey: String?,
     videoId: String,
@@ -108,6 +119,7 @@ public struct BunnyStreamPlayer: View {
     token: String? = nil,
     expires: Int? = nil,
     referer: String? = nil,
+    cacheKey: String? = nil,
     playerIcons: PlayerIcons? = nil
   ) {
     self.accessKey = accessKey
@@ -116,6 +128,7 @@ public struct BunnyStreamPlayer: View {
     self.token = token
     self.expires = expires
     self.referer = referer
+    self.cacheKey = cacheKey
     if let accessKey {
       self.heatmapLoader = HeatmapLoader(bunnyStreamAPI: .init(accessKey: accessKey, referer: referer))
     }
@@ -162,6 +175,17 @@ public struct BunnyStreamPlayer: View {
   @MainActor
   func loadVideo() async {
     print("[BunnyStreamPlayer] Starting to load video - ID: \(videoId), Library: \(libraryId)")
+    
+    // Check if we should load from cache
+    if let cacheKey = cacheKey {
+      print("[BunnyStreamPlayer] Cache key provided: \(cacheKey)")
+      if await loadFromCache(cacheKey: cacheKey) {
+        return
+      } else {
+        print("[BunnyStreamPlayer] Video not found in cache, loading from network...")
+      }
+    }
+    
     if token != nil {
       print("[BunnyStreamPlayer] Using token authentication")
     }
@@ -181,7 +205,7 @@ public struct BunnyStreamPlayer: View {
       VideoPlayerConfig(response: videoConfigResponse).map { self.videoConfig = $0 }
       
       print("[BunnyStreamPlayer] Creating media player...")
-      let player = MediaPlayer.make(video: video)
+      let player = MediaPlayer.make(video: video, cacheKey: cacheKey)
       self.player = player
       video.adjustLength(player.duration)
       print("[BunnyStreamPlayer] Media player created - Duration: \(player.duration)")
@@ -207,6 +231,50 @@ public struct BunnyStreamPlayer: View {
       print("[BunnyStreamPlayer Error]: Error type: \(type(of: error))")
       loadingState = .failed
     }
+  }
+  
+  /// Attempts to load video from cache
+  @MainActor
+  private func loadFromCache(cacheKey: String) async -> Bool {
+    print("[BunnyStreamPlayer] Checking cache for key: \(cacheKey)")
+    
+    guard let cachedVideoURL = VideoCacheManager.shared.getCachedVideoURL(cacheKey: cacheKey) else {
+      print("[BunnyStreamPlayer] Video not found in cache")
+      return false
+    }
+    
+    guard let offlineVideo = VideoCacheManager.shared.getOfflineVideo(cacheKey: cacheKey) else {
+      print("[BunnyStreamPlayer] Offline video metadata not found")
+      return false
+    }
+    
+    print("[BunnyStreamPlayer] Loading from cache: \(cachedVideoURL.path)")
+    
+    // Create a minimal video object from cached metadata
+    var video = Video(
+      guid: offlineVideo.videoId,
+      chaptersList: nil,
+      moments: [],
+      thumbnailCount: 0,
+      width: offlineVideo.metadata.width,
+      height: offlineVideo.metadata.height,
+      length: offlineVideo.metadata.duration,
+      captions: [],
+      libraryId: offlineVideo.libraryId,
+      resolutions: [Video.Resolution.auto],
+      seekPath: nil,
+      playlistUrl: cachedVideoURL.absoluteString
+    )
+    
+    print("[BunnyStreamPlayer] Creating media player for offline video...")
+    let player = MediaPlayer.makeOffline(url: cachedVideoURL)
+    self.player = player
+    video.adjustLength(player.duration)
+    
+    print("[BunnyStreamPlayer] Offline video loaded successfully - Duration: \(player.duration)")
+    loadingState = .loaded(player, video, Heatmap(data: [:]))
+    
+    return true
   }
 
   /// Returns a reload button view for retrying video loading.
