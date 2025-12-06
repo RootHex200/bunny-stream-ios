@@ -8,6 +8,7 @@
 import SwiftUI
 import BunnyStreamUploader
 import BunnyStreamCameraUpload
+import BunnyStreamPlayer
 
 struct ContentView: View {
   @EnvironmentObject var dependenciesManager: DependenciesManager
@@ -19,6 +20,7 @@ struct ContentView: View {
   @State private var videoId: String = ""
   @State private var token: String = ""
   @State private var expires: String = ""
+  @State private var cacheKey: String = ""
   @State private var showPublicVideoPlayer = false
   
   var body: some View {
@@ -45,6 +47,7 @@ struct ContentView: View {
             videoId = ""
             token = ""
             expires = ""
+            cacheKey = ""
             isShowingVideoIdAlert = true
           } label: {
             Text("Direct Video Play")
@@ -78,6 +81,35 @@ struct ContentView: View {
             } footer: {
               Text("Leave token and expires empty for public videos. For protected videos, enter the authentication token and expiration timestamp.")
             }
+            
+            Section {
+              TextField("Cache Key", text: $cacheKey)
+                .autocapitalization(.none)
+                .disableAutocorrection(true)
+                .textInputAutocapitalization(.never)
+              
+              if !cacheKey.isEmpty {
+                HStack {
+                  if BunnyOfflineManager.shared.isVideoDownloaded(cacheKey: cacheKey) {
+                    Image(systemName: "checkmark.circle.fill")
+                      .foregroundColor(.green)
+                    Text("Cached (available offline)")
+                      .font(.caption)
+                      .foregroundColor(.green)
+                  } else {
+                    Image(systemName: "icloud")
+                      .foregroundColor(.secondary)
+                    Text("Not cached (will stream online)")
+                      .font(.caption)
+                      .foregroundColor(.secondary)
+                  }
+                }
+              }
+            } header: {
+              Text("Offline Playback (Optional)")
+            } footer: {
+              Text("Enter a unique cache key to enable offline playback. The player will automatically use cached content if available, otherwise it will stream online. Example: my_video_1")
+            }
           }
           .formStyle(.grouped)
           .navigationTitle("Play Video")
@@ -97,6 +129,7 @@ struct ContentView: View {
                 videoId = ""
                 token = ""
                 expires = ""
+                cacheKey = ""
               }
             }
           }
@@ -108,7 +141,8 @@ struct ContentView: View {
           dependenciesManager: dependenciesManager, 
           videoId: videoId,
           token: token.isEmpty ? nil : token,
-          expires: expiresInt == 0 ? nil : expiresInt
+          expires: expiresInt == 0 ? nil : expiresInt,
+          cacheKey: cacheKey
         )
       }
 
