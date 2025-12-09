@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import Combine
+import UserNotifications
 
 /// Manager for downloading and caching HLS videos for offline playback
 public class VideoCacheManager: NSObject {
@@ -33,6 +34,11 @@ public class VideoCacheManager: NSObject {
   
   /// Publisher for download progress updates
   public let progressPublisher = PassthroughSubject<DownloadProgress, Never>()
+  
+  /// Last time notification was updated for a key
+  private var lastNotificationUpdateTime: [String: Date] = [:]
+  
+  /// Cached video metadata
   
   /// Cached video metadata
   private var cachedVideos: [String: OfflineVideo] = [:]
@@ -155,8 +161,68 @@ public class VideoCacheManager: NSObject {
     // Start download
     downloadTask.resume()
     
+    // Setup notifications
+    requestNotificationPermission()
+    updateNotification(cacheKey: cacheKey, title: metadata.title, progress: 0.0, status: .downloading)
+    
     print("[VideoCacheManager] Download task started for: \(cacheKey)")
     return true
+  }
+  
+  /// Request notification permissions
+  public func requestNotificationPermission() {
+    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+      if granted {
+        print("[VideoCacheManager] Notification permission granted")
+      } else if let error = error {
+        print("[VideoCacheManager] Notification permission error: \(error.localizedDescription)")
+      }
+    }
+  }
+  
+  /// Update notification for download
+  private func updateNotification(cacheKey: String, title: String? = nil, progress: Double, status: DownloadStatus) {
+    let center = UNUserNotificationCenter.current()
+    
+    // For completion or failure, send immediately
+    if status == .completed || status == .failed {
+      let content = UNMutableNotificationContent()
+      content.title = status == .completed ? "Download Completed" : "Download Failed"
+      content.body = title ?? "Video download \(status == .completed ? "finished" : "failed")"
+      content.sound = .default
+      
+      let request = UNNotificationRequest(identifier: cacheKey, content: content, trigger: nil)
+      center.add(request)
+      lastNotificationUpdateTime.removeValue(forKey: cacheKey)
+      return
+    }
+    
+    // For progress, debounce updates (every 1.5 seconds)
+    if let lastUpdate = lastNotificationUpdateTime[cacheKey], Date().timeIntervalSince(lastUpdate) < 1.5 {
+      return
+    }
+    
+    let content = UNMutableNotificationContent()
+    content.title = "Downloading Video"
+    
+    // Create text progress bar
+    let percentage = Int(progress * 100)
+    let barLength = 10
+    let filledCount = Int((progress * Double(barLength)))
+    let emptyCount = barLength - filledCount
+    let bar = String(repeating: "■", count: filledCount) + String(repeating: "□", count: emptyCount)
+    
+    content.body = "\(bar) \(percentage)%"
+    if let title = title {
+      content.body = "\(title)\n" + content.body
+    }
+    
+    // Determine sound - only minimal or none for updates to avoid annoyance
+    // content.sound = nil 
+    
+    let request = UNNotificationRequest(identifier: cacheKey, content: content, trigger: nil)
+    center.add(request)
+    lastNotificationUpdateTime[cacheKey] = Date()
   }
   
   /// Check if a video is cached
@@ -271,6 +337,10 @@ public class VideoCacheManager: NSObject {
     downloadProgress.removeValue(forKey: cacheKey)
     downloadLocations.removeValue(forKey: cacheKey)
     downloadContexts.removeValue(forKey: cacheKey)
+    lastNotificationUpdateTime.removeValue(forKey: cacheKey)
+    
+    // Remove notification
+    UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [cacheKey])
     
     let progress = DownloadProgress(
       cacheKey: cacheKey,
@@ -414,6 +484,9 @@ public class VideoCacheManager: NSObject {
     downloadProgress[cacheKey] = progress
     progressPublisher.send(progress)
     
+    // Notify completion
+    updateNotification(cacheKey: cacheKey, title: metadata.title, progress: 1.0, status: .completed)
+    
     // Remove from trackers
     activeDownloads.removeValue(forKey: cacheKey)
     downloadLocations.removeValue(forKey: cacheKey)
@@ -515,6 +588,9 @@ extension VideoCacheManager: AVAssetDownloadDelegate {
     downloadProgress[cacheKey] = progress
     progressPublisher.send(progress)
     
+    // Notify failure
+    updateNotification(cacheKey: cacheKey, progress: 0.0, status: .failed)
+    
     // Remove from active downloads and locations
     activeDownloads.removeValue(forKey: cacheKey)
     downloadLocations.removeValue(forKey: cacheKey)
@@ -575,6 +651,13 @@ extension VideoCacheManager: AVAssetDownloadDelegate {
       )
       downloadProgress[cacheKey] = updatedProgress
       progressPublisher.send(updatedProgress)
+      
+      // Update notification
+      // We need to retrieve the title if possible, or pass nil/context
+      let title = downloadContexts[cacheKey]?.videoId // Just using ID or we can fetch metadata if we had it
+      // A better title would be nice, but we might not have it easily accessible unless passed in context
+      // For now, simple update
+      updateNotification(cacheKey: cacheKey, progress: percentComplete, status: .downloading)
       
       // Log progress periodically
       if Int(percentComplete * 100) % 10 == 0 {
