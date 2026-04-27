@@ -7,7 +7,6 @@ private func configureGlobalKingfisherHeaders() {
   var headers = KingfisherManager.shared.downloader.sessionConfiguration.httpAdditionalHeaders ?? [:]
   headers["Referer"] = "https://iframe.mediadelivery.net/"
   KingfisherManager.shared.downloader.sessionConfiguration.httpAdditionalHeaders = headers
-  print("[BunnyStreamPlayer] Global Kingfisher headers configured with default referer")
 }
 
 // Configure headers when module loads
@@ -42,6 +41,7 @@ public struct BunnyStreamPlayer: View {
 
   /// The loading state of the video player.
   @State private var loadingState: VideoLoadingState = .loading
+  @State private var isViewActive: Bool = false
   /// The media player instance.
   @State var player: MediaPlayer?
   /// The theme configuration for the video player.
@@ -163,10 +163,14 @@ public struct BunnyStreamPlayer: View {
         errorView(for: error)
       }
     }
+    .onAppear {
+      isViewActive = true
+    }
     .task {
       await loadVideo()
     }
     .onDisappear {
+      isViewActive = false
       player?.pause()
     }
   }
@@ -174,61 +178,38 @@ public struct BunnyStreamPlayer: View {
   /// Loads the video and its configuration asynchronously.
   @MainActor
   func loadVideo() async {
-    print("[BunnyStreamPlayer] Starting to load video - ID: \(videoId), Library: \(libraryId)")
-    
-    // Check if we should load from cache
     if let cacheKey = cacheKey {
-      print("[BunnyStreamPlayer] Cache key provided: \(cacheKey)")
-      if await loadFromCache(cacheKey: cacheKey) {
-        return
-      } else {
-        print("[BunnyStreamPlayer] Video not found in cache, loading from network...")
-      }
+      if await loadFromCache(cacheKey: cacheKey) { return }
     }
-    
-    if token != nil {
-      print("[BunnyStreamPlayer] Using token authentication")
-    }
-    
+
     loadingState = .loading
     do {
-      print("[BunnyStreamPlayer] Loading video configuration...")
       let videoConfigResponse = try await videoPlayerConfigLoader.load(libraryId: libraryId, videoId: videoId, token: token, expires: expires, referer: referer)
-      print("[BunnyStreamPlayer] Video config loaded successfully")
-      
+
+      guard isViewActive else { return }
+
       var video = Video(response: videoConfigResponse)
-      print("[BunnyStreamPlayer] Video object created - Playlist URL: \(video.playlistUrl ?? "nil")")
-      
-      // If Public Video (no access key), heatmap is not loaded - heatmapLoader is nil
       let heatmap = try? await heatmapLoader?.loadHeatmap(videoId: videoId, libraryId: libraryId)
-      
       VideoPlayerConfig(response: videoConfigResponse).map { self.videoConfig = $0 }
-      
-      print("[BunnyStreamPlayer] Creating media player...")
+
       let player = MediaPlayer.make(video: video, cacheKey: cacheKey)
       self.player = player
       video.adjustLength(player.duration)
-      print("[BunnyStreamPlayer] Media player created - Duration: \(player.duration)")
-      
-      // Check for zero-duration videos
-      if player.duration <= 0.0 {
-        print("[BunnyStreamPlayer] WARNING: Video has zero or negative duration (\(player.duration))")
-        print("[BunnyStreamPlayer] This usually indicates the video is not fully processed or corrupted")
-      }
-      
+
       self.theme = VideoPlayerTheme(config: videoConfigResponse) ?? theme
-      if let playerIcons {
-        self.theme.images = playerIcons
+      if let playerIcons { self.theme.images = playerIcons }
+
+      guard isViewActive else {
+        player.pause()
+        return
       }
-      
-      print("[BunnyStreamPlayer] Video loading completed successfully")
+
       loadingState = .loaded(player, video, heatmap ?? Heatmap(data: [:]))
     } catch let error as VideoPlayerError {
-      print("[BunnyStreamPlayer Error]: VideoPlayerError - \(error)")
+      guard isViewActive else { return }
       loadingState = .loaderFailed(error)
     } catch {
-      print("[BunnyStreamPlayer Error]: General error - \(error)")
-      print("[BunnyStreamPlayer Error]: Error type: \(type(of: error))")
+      guard isViewActive else { return }
       loadingState = .failed
     }
   }
@@ -236,21 +217,14 @@ public struct BunnyStreamPlayer: View {
   /// Attempts to load video from cache
   @MainActor
   private func loadFromCache(cacheKey: String) async -> Bool {
-    print("[BunnyStreamPlayer] Checking cache for key: \(cacheKey)")
-    
     guard let cachedVideoURL = VideoCacheManager.shared.getCachedVideoURL(cacheKey: cacheKey) else {
-      print("[BunnyStreamPlayer] Video not found in cache")
       return false
     }
-    
+
     guard let offlineVideo = VideoCacheManager.shared.getOfflineVideo(cacheKey: cacheKey) else {
-      print("[BunnyStreamPlayer] Offline video metadata not found")
       return false
     }
-    
-    print("[BunnyStreamPlayer] Loading from cache: \(cachedVideoURL.path)")
-    
-    // Create a minimal video object from cached metadata
+
     var video = Video(
       guid: offlineVideo.videoId,
       chaptersList: nil,
@@ -266,12 +240,14 @@ public struct BunnyStreamPlayer: View {
       playlistUrl: cachedVideoURL.absoluteString
     )
     
-    print("[BunnyStreamPlayer] Creating media player for offline video...")
     let player = MediaPlayer.makeOffline(url: cachedVideoURL)
     self.player = player
     video.adjustLength(player.duration)
-    
-    print("[BunnyStreamPlayer] Offline video loaded successfully - Duration: \(player.duration)")
+
+    guard isViewActive else {
+      player.pause()
+      return false
+    }
     loadingState = .loaded(player, video, Heatmap(data: [:]))
     
     return true
@@ -339,6 +315,5 @@ public struct BunnyStreamPlayer: View {
     config.httpAdditionalHeaders = headers
     downloader.sessionConfiguration = config
     
-    print("[BunnyStreamPlayer] Kingfisher headers configured with referer: \(refererValue)")
   }
 }

@@ -103,7 +103,7 @@ class MediaPlayer: AVPlayer {
   /// Boolean flag `true` when item is prepared and can be played
   private(set) var canPlayVideo: Bool = false
   /// Flipped to `true` when trying to start playing but `canPlayVideo` is false
-  private var playWhenReady: Bool = false
+  private(set) var playWhenReady: Bool = false
   private var playerItemObserver: NSKeyValueObservation?
   private var periodicTimeObserver: Any?
   private var volumeObservation: NSKeyValueObservation?
@@ -150,7 +150,7 @@ class MediaPlayer: AVPlayer {
       playWhenReady = true
       return
     }
-    
+
     playWhenReady = false
     setupPlayerItemObserver()
     super.play()
@@ -233,6 +233,7 @@ class MediaPlayer: AVPlayer {
   
   /// Pauses the media playback, updates the state of the media player to `.paused`, and informs the delegate that the playback has paused.
   override func pause() {
+    playWhenReady = false
     super.pause()
     state = .paused
   }
