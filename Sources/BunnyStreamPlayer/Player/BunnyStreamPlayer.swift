@@ -50,6 +50,12 @@ public struct BunnyStreamPlayer: View {
   @State var videoConfig = VideoPlayerConfig()
   /// The set of custom player icons.
   internal var playerIcons: PlayerIcons?
+  /// Callback fired once the underlying AVPlayer is created and assigned.
+  /// Hosts (e.g. plugin bridges) can use this to capture a reference for explicit
+  /// lifecycle control (pause, replace item, etc.) without waiting for SwiftUI's
+  /// onDisappear — which can fire late or not at all when this view is hosted
+  /// inside a UIHostingController inside a Flutter platform view.
+  public var onPlayerReady: ((AVPlayer) -> Void)?
 
   /// The different states of video loading.
   enum VideoLoadingState {
@@ -120,7 +126,8 @@ public struct BunnyStreamPlayer: View {
     expires: Int? = nil,
     referer: String? = nil,
     cacheKey: String? = nil,
-    playerIcons: PlayerIcons? = nil
+    playerIcons: PlayerIcons? = nil,
+    onPlayerReady: ((AVPlayer) -> Void)? = nil
   ) {
     self.accessKey = accessKey
     self.videoId = videoId
@@ -129,6 +136,7 @@ public struct BunnyStreamPlayer: View {
     self.expires = expires
     self.referer = referer
     self.cacheKey = cacheKey
+    self.onPlayerReady = onPlayerReady
     if let accessKey {
       self.heatmapLoader = HeatmapLoader(bunnyStreamAPI: .init(accessKey: accessKey, referer: referer))
     }
@@ -137,7 +145,7 @@ public struct BunnyStreamPlayer: View {
       self.theme.images = playerIcons
     }
     FontManager.registerFonts()
-    
+
     // Configure Kingfisher to use Referer header for CDN bypass
     configureKingfisherHeaders()
   }
@@ -171,8 +179,17 @@ public struct BunnyStreamPlayer: View {
     }
     .onDisappear {
       isViewActive = false
-      player?.pause()
+      teardownPlayer()
     }
+  }
+
+  /// Stops playback and releases the underlying AVPlayer item so audio buffers
+  /// and decoders are freed immediately. Safe to call multiple times.
+  private func teardownPlayer() {
+    guard let p = player else { return }
+    p.stop()
+    p.replaceCurrentItem(with: nil)
+    player = nil
   }
 
   /// Loads the video and its configuration asynchronously.
@@ -194,13 +211,14 @@ public struct BunnyStreamPlayer: View {
 
       let player = MediaPlayer.make(video: video, cacheKey: cacheKey)
       self.player = player
+      onPlayerReady?(player)
       video.adjustLength(player.duration)
 
       self.theme = VideoPlayerTheme(config: videoConfigResponse) ?? theme
       if let playerIcons { self.theme.images = playerIcons }
 
       guard isViewActive else {
-        player.pause()
+        teardownPlayer()
         return
       }
 
@@ -242,10 +260,11 @@ public struct BunnyStreamPlayer: View {
     
     let player = MediaPlayer.makeOffline(url: cachedVideoURL)
     self.player = player
+    onPlayerReady?(player)
     video.adjustLength(player.duration)
 
     guard isViewActive else {
-      player.pause()
+      teardownPlayer()
       return false
     }
     loadingState = .loaded(player, video, Heatmap(data: [:]))
