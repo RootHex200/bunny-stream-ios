@@ -20,6 +20,13 @@ public class VideoCacheManager: NSObject {
   /// Dictionary to track download locations
   private var downloadLocations: [String: URL] = [:]
   
+  /// Metadata supplied at download time, held until completion.
+  ///
+  /// Completion used to rebuild this from the task description, discarding the
+  /// title, duration and thumbnail the caller passed — which left the
+  /// downloads list with placeholder rows.
+  private var pendingMetadata: [String: OfflineVideo.VideoMetadata] = [:]
+
   /// Context info for active downloads
   private struct DownloadContext {
     let videoId: String
@@ -43,40 +50,158 @@ public class VideoCacheManager: NSObject {
   /// Cached video metadata
   private var cachedVideos: [String: OfflineVideo] = [:]
   
-  /// Background session for downloads
-  private var backgroundSession: AVAssetDownloadURLSession!
+  /// Wi-Fi-only download session.
+  ///
+  /// Two sessions exist because `allowsCellularAccess` is fixed when a session
+  /// is created and a background session's identifier cannot be reused, so a
+  /// runtime-toggleable preference cannot be served by one. Each download
+  /// starts on whichever session the preference selects and keeps running
+  /// there, so toggling never orphans an in-flight task.
+  private var wifiOnlySession: AVAssetDownloadURLSession!
+
+  /// Cellular-allowed download session.
+  private var cellularSession: AVAssetDownloadURLSession!
+
+  /// Which session new downloads start on.
+  private var wifiOnly: Bool = true
   
   // MARK: - Initialization
   
   private override init() {
-    // Create cache directory
-    let documentsPath = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-    cacheDirectory = documentsPath.appendingPathComponent("BunnyStreamCache", isDirectory: true)
-    
+    // Application Support, not Documents. Documents is exposed to the Files
+    // app and iTunes the moment UIFileSharingEnabled is ever switched on, and
+    // it is included in iCloud/iTunes backups. Downloaded lesson video is
+    // neither the user's document nor something worth backing up.
+    let supportPath = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    cacheDirectory = supportPath.appendingPathComponent("BunnyStreamCache", isDirectory: true)
+
     super.init()
-    
-    // Create cache directory if it doesn't exist
-    try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
-    
+
+    createProtectedCacheDirectory()
+
+    // Content written by an earlier build sits unprotected under Documents.
+    // Delete it rather than migrate: it was written without protection, so
+    // re-downloading is the honest remedy.
+    purgeLegacyUnprotectedCache()
+
     // Setup background session
     setupBackgroundSession()
-    
+
     // Load cached videos metadata
     loadCachedVideosMetadata()
-    
+
     print("[VideoCacheManager] Initialized with cache directory: \(cacheDirectory.path)")
+  }
+
+  /// Creates the cache directory with data protection applied and excluded
+  /// from backup.
+  ///
+  /// Protection class is `completeUnlessOpen` rather than `complete`: a
+  /// background download writes after the screen locks, and `complete` would
+  /// make those writes fail. `completeUnlessOpen` keeps the bytes encrypted at
+  /// rest while allowing a file already open for writing to continue — which
+  /// is exactly the background-download case, and still leaves nothing
+  /// readable to a non-rooted extraction.
+  private func createProtectedCacheDirectory() {
+    try? fileManager.createDirectory(
+      at: cacheDirectory,
+      withIntermediateDirectories: true,
+      attributes: [.protectionKey: FileProtectionType.completeUnlessOpen]
+    )
+
+    var directory = cacheDirectory
+    var resourceValues = URLResourceValues()
+    resourceValues.isExcludedFromBackup = true
+    try? directory.setResourceValues(resourceValues)
+  }
+
+  /// Applies protection and backup exclusion to a freshly downloaded item.
+  ///
+  /// The directory attributes do not propagate to files AVFoundation writes
+  /// into it, so each finished download is stamped individually.
+  private func protect(_ url: URL) {
+    try? fileManager.setAttributes(
+      [.protectionKey: FileProtectionType.completeUnlessOpen],
+      ofItemAtPath: url.path
+    )
+
+    var target = url
+    var resourceValues = URLResourceValues()
+    resourceValues.isExcludedFromBackup = true
+    try? target.setResourceValues(resourceValues)
+  }
+
+  /// Removes the pre-protection cache from the Documents directory.
+  private func purgeLegacyUnprotectedCache() {
+    let documentsPath = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    let legacy = documentsPath.appendingPathComponent("BunnyStreamCache", isDirectory: true)
+    guard fileManager.fileExists(atPath: legacy.path) else { return }
+
+    print("[VideoCacheManager] Removing legacy unprotected cache at \(legacy.path)")
+    try? fileManager.removeItem(at: legacy)
   }
   
   private func setupBackgroundSession() {
-    let config = URLSessionConfiguration.background(withIdentifier: "com.bunnystream.download")
+    wifiOnlySession = makeSession(
+      identifier: "com.bunnystream.download.wifi",
+      allowsCellular: false
+    )
+    cellularSession = makeSession(
+      identifier: "com.bunnystream.download.cellular",
+      allowsCellular: true
+    )
+
+    // A background session outlives the process. Re-adopt whatever it is still
+    // carrying, or a download interrupted by app termination becomes
+    // unreachable — the tracking map starts empty on every launch.
+    restoreInFlightDownloads()
+  }
+
+  private func makeSession(
+    identifier: String,
+    allowsCellular: Bool
+  ) -> AVAssetDownloadURLSession {
+    let config = URLSessionConfiguration.background(withIdentifier: identifier)
     config.isDiscretionary = false
     config.sessionSendsLaunchEvents = true
-    
-    backgroundSession = AVAssetDownloadURLSession(
+    config.allowsCellularAccess = allowsCellular
+
+    return AVAssetDownloadURLSession(
       configuration: config,
       assetDownloadDelegate: self,
       delegateQueue: OperationQueue.main
     )
+  }
+
+  /// Restores tasks still running in either background session after a
+  /// relaunch, so an interrupted download resumes instead of disappearing.
+  private func restoreInFlightDownloads() {
+    for session in [wifiOnlySession, cellularSession] {
+      session?.getAllTasks { [weak self] tasks in
+        guard let self = self else { return }
+        for case let task as AVAggregateAssetDownloadTask in tasks {
+          guard let cacheKey = task.taskDescription, !cacheKey.isEmpty else { continue }
+
+          self.activeDownloads[cacheKey] = task
+          let progress = DownloadProgress(
+            cacheKey: cacheKey,
+            status: .downloading,
+            progress: 0,
+            downloadedSize: 0,
+            totalSize: 0
+          )
+          self.downloadProgress[cacheKey] = progress
+          self.progressPublisher.send(progress)
+          print("[VideoCacheManager] Re-adopted in-flight download: \(cacheKey)")
+        }
+      }
+    }
+  }
+
+  /// Selects which session new downloads start on. In-flight downloads keep
+  /// running on the session that owns them.
+  public func setWifiOnly(_ enabled: Bool) {
+    wifiOnly = enabled
   }
   
   // MARK: - Public Methods
@@ -132,7 +257,8 @@ public class VideoCacheManager: NSObject {
     let preferredMediaSelection = asset.preferredMediaSelection
     
     // Create download task
-    guard let downloadTask = backgroundSession.aggregateAssetDownloadTask(
+    let session = wifiOnly ? wifiOnlySession! : cellularSession!
+    guard let downloadTask = session.aggregateAssetDownloadTask(
       with: asset,
       mediaSelections: [preferredMediaSelection],
       assetTitle: cacheKey,
@@ -143,8 +269,13 @@ public class VideoCacheManager: NSObject {
       return false
     }
     
+    // The task description is the only identifier that survives into a fresh
+    // process, so restore-after-relaunch depends on it being set here.
+    downloadTask.taskDescription = cacheKey
+
     // Store download info
     activeDownloads[cacheKey] = downloadTask
+    pendingMetadata[cacheKey] = metadata
     downloadContexts[cacheKey] = DownloadContext(videoId: videoId, libraryId: libraryId)
     
     // Initialize progress
@@ -440,13 +571,18 @@ public class VideoCacheManager: NSObject {
 
   private func handleDownloadCompletion(task: AVAssetDownloadTask, location: URL, cacheKey: String) {
     print("[VideoCacheManager] Handling download completion for: \(cacheKey) at \(location.path)")
-    
+
+    // AVFoundation wrote this package itself, so the directory's attributes
+    // did not reach it — stamp protection and backup exclusion now.
+    protect(location)
+
     // Get file size
     let fileSize = getFileSize(at: location)
     
-    // Get video metadata from progress
-    let metadata = OfflineVideo.VideoMetadata(
-      title: task.taskDescription ?? "Unknown",
+    // Use what the caller supplied; falling back only when this download
+    // started in an earlier process and its metadata is gone.
+    let metadata = pendingMetadata[cacheKey] ?? OfflineVideo.VideoMetadata(
+      title: nil,
       thumbnailUrl: nil,
       duration: 0,
       width: 0,
@@ -491,7 +627,8 @@ public class VideoCacheManager: NSObject {
     activeDownloads.removeValue(forKey: cacheKey)
     downloadLocations.removeValue(forKey: cacheKey)
     downloadContexts.removeValue(forKey: cacheKey)
-    
+    pendingMetadata.removeValue(forKey: cacheKey)
+
     print("[VideoCacheManager] Successfully cached video with key: \(cacheKey)")
   }
 }
@@ -652,12 +789,14 @@ extension VideoCacheManager: AVAssetDownloadDelegate {
       downloadProgress[cacheKey] = updatedProgress
       progressPublisher.send(updatedProgress)
       
-      // Update notification
-      // We need to retrieve the title if possible, or pass nil/context
-      let title = downloadContexts[cacheKey]?.videoId // Just using ID or we can fetch metadata if we had it
-      // A better title would be nice, but we might not have it easily accessible unless passed in context
-      // For now, simple update
-      updateNotification(cacheKey: cacheKey, progress: percentComplete, status: .downloading)
+      // The caller's metadata is held for the life of the download now, so
+      // the notification can show the real lesson title rather than a guid.
+      updateNotification(
+        cacheKey: cacheKey,
+        title: pendingMetadata[cacheKey]?.title,
+        progress: percentComplete,
+        status: .downloading
+      )
       
       // Log progress periodically
       if Int(percentComplete * 100) % 10 == 0 {
