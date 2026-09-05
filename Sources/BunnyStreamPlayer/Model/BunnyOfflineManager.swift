@@ -43,8 +43,14 @@ public class BunnyOfflineManager {
     token: String? = nil,
     expires: Int? = nil,
     referer: String? = nil,
+    title: String? = nil,
+    wifiOnly: Bool = true,
     completion: @escaping (Bool, Error?) -> Void
   ) {
+    // Selects which background session this download starts on. In-flight
+    // downloads stay on the session that owns them.
+    cacheManager.setWifiOnly(wifiOnly)
+
     Task {
       do {
         // Load video configuration to get playlist URL
@@ -59,7 +65,7 @@ public class BunnyOfflineManager {
         
         // Create metadata
         let metadata = OfflineVideo.VideoMetadata(
-          title: nil,
+          title: title,
           thumbnailUrl: config.thumbnailUrl,
           duration: config.video.length,
           width: CGFloat(config.video.width),
@@ -236,6 +242,14 @@ public class BunnyOfflineManager {
   /// ```
   public func clearAllDownloads() {
     cacheManager.clearAllCache()
+  }
+
+  /// Selects which background session new downloads start on.
+  ///
+  /// A background session's cellular flag is fixed at creation, so the
+  /// preference selects between two sessions rather than mutating one.
+  public func setWifiOnly(_ enabled: Bool) {
+    cacheManager.setWifiOnly(enabled)
   }
 }
 
