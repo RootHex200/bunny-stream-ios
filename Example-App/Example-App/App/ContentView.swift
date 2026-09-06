@@ -35,6 +35,10 @@ struct ContentView: View {
             VideoUploaderTypesView()
               .environmentObject(dependenciesManager)
           }
+          NavigationLink("Offline Downloads") {
+            OfflineDownloadsView()
+              .environmentObject(dependenciesManager)
+          }
           NavigationLink("Camera Upload") {
             Button {
               isStreamingPresented.toggle()
