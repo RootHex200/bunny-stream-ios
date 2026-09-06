@@ -13,6 +13,22 @@ public class VideoCacheManager: NSObject {
   private let fileManager = FileManager.default
   private let cacheDirectory: URL
   private let metadataFileName = "cache_metadata.json"
+  private let inFlightFileName = "in_flight_downloads.json"
+
+  /// Everything a download needs to be *finished* by a later process.
+  ///
+  /// A background session hands over `willDownloadTo` exactly once and never
+  /// re-delivers it after a relaunch. Without this on disk, a download
+  /// interrupted by termination transfers all its bytes and is then dropped on
+  /// the floor at completion, because the location, the video identity and the
+  /// caller's metadata all lived in memory that died with the process.
+  private struct InFlightDownload: Codable {
+    let cacheKey: String
+    let videoId: String
+    let libraryId: Int
+    let relativePath: String?
+    let metadata: OfflineVideo.VideoMetadata
+  }
   
   /// Dictionary to track active downloads
   private var activeDownloads: [String: AVAggregateAssetDownloadTask] = [:]
@@ -176,6 +192,8 @@ public class VideoCacheManager: NSObject {
   /// Restores tasks still running in either background session after a
   /// relaunch, so an interrupted download resumes instead of disappearing.
   private func restoreInFlightDownloads() {
+    let persisted = loadInFlightDownloads()
+
     for session in [wifiOnlySession, cellularSession] {
       session?.getAllTasks { [weak self] tasks in
         guard let self = self else { return }
@@ -183,6 +201,21 @@ public class VideoCacheManager: NSObject {
           guard let cacheKey = task.taskDescription, !cacheKey.isEmpty else { continue }
 
           self.activeDownloads[cacheKey] = task
+
+          // Re-arm everything completion depends on. `willDownloadTo` fired in
+          // the previous process and will not fire again for this task.
+          if let entry = persisted[cacheKey] {
+            self.downloadContexts[cacheKey] = DownloadContext(
+              videoId: entry.videoId,
+              libraryId: entry.libraryId
+            )
+            self.pendingMetadata[cacheKey] = entry.metadata
+            if let relativePath = entry.relativePath {
+              self.downloadLocations[cacheKey] = URL(fileURLWithPath: NSHomeDirectory())
+                .appendingPathComponent(relativePath)
+            }
+          }
+
           let progress = DownloadProgress(
             cacheKey: cacheKey,
             status: .downloading,
@@ -246,9 +279,6 @@ public class VideoCacheManager: NSObject {
         print("[VideoCacheManager] Identified HLS stream for download: \(url.lastPathComponent)")
     }
     
-    // Create download location
-    let downloadLocation = cacheDirectory.appendingPathComponent(cacheKey, isDirectory: true)
-    
     // Create AVURLAsset
     // For HLS, we use AVURLAsset which handles m3u8 playlists natively
     let asset = AVURLAsset(url: url)
@@ -277,7 +307,8 @@ public class VideoCacheManager: NSObject {
     activeDownloads[cacheKey] = downloadTask
     pendingMetadata[cacheKey] = metadata
     downloadContexts[cacheKey] = DownloadContext(videoId: videoId, libraryId: libraryId)
-    
+    persistInFlightDownloads()
+
     // Initialize progress
     let progress = DownloadProgress(
       cacheKey: cacheKey,
@@ -406,14 +437,11 @@ public class VideoCacheManager: NSObject {
       return false
     }
     
-    // Delete files
-    let videoURL = URL(fileURLWithPath: offlineVideo.localPath)
-    try? fileManager.removeItem(at: videoURL)
-    
-    // Delete parent directory if it exists
-    let parentDir = cacheDirectory.appendingPathComponent(cacheKey, isDirectory: true)
-    try? fileManager.removeItem(at: parentDir)
-    
+    // AVFoundation owns where the package lives, so the entry's own resolved
+    // location is the only thing safe to delete. Removing a path built from
+    // the cache directory would delete nothing and leak the package.
+    try? fileManager.removeItem(at: offlineVideo.localURL)
+
     // Save updated metadata
     saveCachedVideosMetadata()
     
@@ -464,11 +492,18 @@ public class VideoCacheManager: NSObject {
   public func cancelDownload(cacheKey: String) {
     guard let downloadTask = activeDownloads[cacheKey] else { return }
     downloadTask.cancel()
+
+    // Captured before the trackers are cleared: this is the only handle on
+    // where AVFoundation put the partial package.
+    let partialLocation = downloadLocations[cacheKey]
+
     activeDownloads.removeValue(forKey: cacheKey)
     downloadProgress.removeValue(forKey: cacheKey)
     downloadLocations.removeValue(forKey: cacheKey)
     downloadContexts.removeValue(forKey: cacheKey)
+    pendingMetadata.removeValue(forKey: cacheKey)
     lastNotificationUpdateTime.removeValue(forKey: cacheKey)
+    persistInFlightDownloads()
     
     // Remove notification
     UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [cacheKey])
@@ -481,10 +516,10 @@ public class VideoCacheManager: NSObject {
       totalSize: 0
     )
     progressPublisher.send(progress)
-    
-    // Clean up partial download
-    let downloadLocation = cacheDirectory.appendingPathComponent(cacheKey, isDirectory: true)
-    try? fileManager.removeItem(at: downloadLocation)
+
+    if let partialLocation {
+      try? fileManager.removeItem(at: partialLocation)
+    }
   }
   
   /// Get current download progress
@@ -511,18 +546,23 @@ public class VideoCacheManager: NSObject {
     activeDownloads.removeAll()
     downloadProgress.removeAll()
     
+    downloadLocations.removeAll()
+    downloadContexts.removeAll()
+    pendingMetadata.removeAll()
+
     // Delete all cached files
     for (_, offlineVideo) in cachedVideos {
-      let videoURL = URL(fileURLWithPath: offlineVideo.localPath)
-      try? fileManager.removeItem(at: videoURL)
+      try? fileManager.removeItem(at: offlineVideo.localURL)
     }
-    
-    // Clear cache directory
+
+    // Clear cache directory. Recreated through the protected path so the
+    // wipe does not quietly downgrade the directory's data protection.
     try? fileManager.removeItem(at: cacheDirectory)
-    try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
-    
+    createProtectedCacheDirectory()
+
     cachedVideos.removeAll()
     saveCachedVideosMetadata()
+    persistInFlightDownloads()
   }
   
   // MARK: - Private Methods
@@ -561,7 +601,67 @@ public class VideoCacheManager: NSObject {
     print("[VideoCacheManager] Saved metadata for \(videos.count) videos")
   }
   
+  /// Mirrors the in-memory download trackers onto disk. Cheap, and called on
+  /// every transition, because the process can be killed between any two.
+  private func persistInFlightDownloads() {
+    let url = cacheDirectory.appendingPathComponent(inFlightFileName)
+
+    let entries = downloadContexts.map { cacheKey, context in
+      InFlightDownload(
+        cacheKey: cacheKey,
+        videoId: context.videoId,
+        libraryId: context.libraryId,
+        relativePath: downloadLocations[cacheKey].map { OfflineVideo.relativize($0.path) },
+        metadata: pendingMetadata[cacheKey] ?? OfflineVideo.VideoMetadata(
+          title: nil,
+          thumbnailUrl: nil,
+          duration: 0,
+          width: 0,
+          height: 0
+        )
+      )
+    }
+
+    guard !entries.isEmpty else {
+      try? fileManager.removeItem(at: url)
+      return
+    }
+
+    guard let data = try? JSONEncoder().encode(entries) else {
+      print("[VideoCacheManager] Failed to encode in-flight downloads")
+      return
+    }
+    try? data.write(to: url)
+  }
+
+  private func loadInFlightDownloads() -> [String: InFlightDownload] {
+    let url = cacheDirectory.appendingPathComponent(inFlightFileName)
+    guard let data = try? Data(contentsOf: url),
+          let entries = try? JSONDecoder().decode([InFlightDownload].self, from: data) else {
+      return [:]
+    }
+    return Dictionary(entries.map { ($0.cacheKey, $0) }, uniquingKeysWith: { _, last in last })
+  }
+
   private func getFileSize(at url: URL) -> Int64 {
+    // A .movpkg is a directory. Stat'ing it reports the inode size — 192 bytes
+    // for a multi-megabyte download — so the package has to be walked for the
+    // figure shown to the user to mean anything.
+    let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+    if isDirectory {
+      guard let enumerator = fileManager.enumerator(
+        at: url,
+        includingPropertiesForKeys: [.totalFileAllocatedSizeKey, .fileSizeKey]
+      ) else { return 0 }
+
+      var total: Int64 = 0
+      for case let child as URL in enumerator {
+        let values = try? child.resourceValues(forKeys: [.totalFileAllocatedSizeKey, .fileSizeKey])
+        total += Int64(values?.totalFileAllocatedSize ?? values?.fileSize ?? 0)
+      }
+      return total
+    }
+
     guard let attributes = try? fileManager.attributesOfItem(atPath: url.path),
           let fileSize = attributes[.size] as? Int64 else {
       return 0
@@ -599,7 +699,7 @@ public class VideoCacheManager: NSObject {
       cacheKey: cacheKey,
       videoId: videoId,
       libraryId: libraryId,
-      localPath: location.path,
+      localURL: location,
       downloadDate: Date(),
       fileSize: fileSize,
       metadata: metadata
@@ -628,6 +728,7 @@ public class VideoCacheManager: NSObject {
     downloadLocations.removeValue(forKey: cacheKey)
     downloadContexts.removeValue(forKey: cacheKey)
     pendingMetadata.removeValue(forKey: cacheKey)
+    persistInFlightDownloads()
 
     print("[VideoCacheManager] Successfully cached video with key: \(cacheKey)")
   }
@@ -732,6 +833,8 @@ extension VideoCacheManager: AVAssetDownloadDelegate {
     activeDownloads.removeValue(forKey: cacheKey)
     downloadLocations.removeValue(forKey: cacheKey)
     downloadContexts.removeValue(forKey: cacheKey)
+    pendingMetadata.removeValue(forKey: cacheKey)
+    persistInFlightDownloads()
   }
   
   public func urlSession(
@@ -741,9 +844,11 @@ extension VideoCacheManager: AVAssetDownloadDelegate {
   ) {
     print("[VideoCacheManager] Will download to: \(location.path)")
     
-    // Save location for later use in completion handler
+    // Save location for later use in completion handler. Persisted too: this
+    // callback does not repeat, so a relaunch has no other way to learn it.
     if let cacheKey = activeDownloads.first(where: { $0.value == aggregateAssetDownloadTask })?.key {
       downloadLocations[cacheKey] = location
+      persistInFlightDownloads()
     }
   }
   
