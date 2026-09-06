@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		65FC6F442D9D64AE00D29974 /* PublicVideoDemoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65FC6F432D9D64A700D29974 /* PublicVideoDemoView.swift */; };
+		A1B2C3D40000000000000001 /* OfflineDownloadsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000002 /* OfflineDownloadsView.swift */; };
 		770375792AD832B40034C47F /* VideoPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 770375782AD832B40034C47F /* VideoPicker.swift */; };
 		7703757B2AD877040034C47F /* DefaultTextFieldStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7703757A2AD877040034C47F /* DefaultTextFieldStyle.swift */; };
 		77116BD92AFE6774000BB64C /* VideoResponseInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77116BD82AFE6774000BB64C /* VideoResponseInfo.swift */; };
@@ -46,6 +47,7 @@
 
 /* Begin PBXFileReference section */
 		65FC6F432D9D64A700D29974 /* PublicVideoDemoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublicVideoDemoView.swift; sourceTree = "<group>"; };
+		A1B2C3D40000000000000002 /* OfflineDownloadsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineDownloadsView.swift; sourceTree = "<group>"; };
 		770375782AD832B40034C47F /* VideoPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPicker.swift; sourceTree = "<group>"; };
 		7703757A2AD877040034C47F /* DefaultTextFieldStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DefaultTextFieldStyle.swift; sourceTree = "<group>"; };
 		77116BD82AFE6774000BB64C /* VideoResponseInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoResponseInfo.swift; sourceTree = "<group>"; };
@@ -102,6 +104,7 @@
 				972F24502D77448C00D716F5 /* Double+Ext.swift */,
 				77950FAF2AE2D3340091A498 /* VideoPlayerDemoView.swift */,
 				65FC6F432D9D64A700D29974 /* PublicVideoDemoView.swift */,
+				A1B2C3D40000000000000002 /* OfflineDownloadsView.swift */,
 				779D61EE2B0778B80073E47D /* BunnyStreamPlayer+Default.swift */,
 			);
 			path = Player;
@@ -369,6 +372,7 @@
 			);
 			mainGroup = 7789472F2ACFFEFD00DAF8DB;
 			packageReferences = (
+				972F24502D77353B00D716F6 /* XCLocalSwiftPackageReference ".." */,
 			);
 			productRefGroup = 778947392ACFFEFD00DAF8DB /* Products */;
 			projectDirPath = "";
@@ -414,6 +418,7 @@
 				77116BDB2AFEBFA8000BB64C /* DefaultTextField.swift in Sources */,
 				7789CFAA2AD6C8B600CC8BCE /* UploadStatusIndicator.swift in Sources */,
 				65FC6F442D9D64AE00D29974 /* PublicVideoDemoView.swift in Sources */,
+				A1B2C3D40000000000000001 /* OfflineDownloadsView.swift in Sources */,
 				778947522AD0035900DAF8DB /* BunnyStreamSDK+Extension.swift in Sources */,
 				7789CFB02AD6CA6200CC8BCE /* ProgressRowView.swift in Sources */,
 				778947502AD0033800DAF8DB /* VideoListViewModel.swift in Sources */,
@@ -647,21 +652,32 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		972F24502D77353B00D716F6 /* XCLocalSwiftPackageReference ".." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "..";
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		972F244A2D77353B00D716F5 /* BunnyStreamCameraUpload */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 972F24502D77353B00D716F6 /* XCLocalSwiftPackageReference ".." */;
 			productName = BunnyStreamCameraUpload;
 		};
 		972F244C2D77353B00D716F5 /* BunnyStreamPlayer */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 972F24502D77353B00D716F6 /* XCLocalSwiftPackageReference ".." */;
 			productName = BunnyStreamPlayer;
 		};
 		972F244E2D77353B00D716F5 /* BunnyStreamUploader */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 972F24502D77353B00D716F6 /* XCLocalSwiftPackageReference ".." */;
 			productName = BunnyStreamUploader;
 		};
 		97A123872D805E5E00EB3B71 /* BunnyStreamAPI */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 972F24502D77353B00D716F6 /* XCLocalSwiftPackageReference ".." */;
 			productName = BunnyStreamAPI;
 		};
 /* End XCSwiftPackageProductDependency section */

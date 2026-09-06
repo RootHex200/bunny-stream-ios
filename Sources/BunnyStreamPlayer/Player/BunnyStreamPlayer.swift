@@ -175,6 +175,13 @@ public struct BunnyStreamPlayer: View {
       isViewActive = true
     }
     .task {
+      // `.task` runs *before* `onAppear`, so the flag has to be raised here as
+      // well. The cache path reaches its `isViewActive` check without ever
+      // suspending, so relying on `onAppear` alone made it always read `false`
+      // — offline playback tore down the player it had just built and fell
+      // through to the network. The online path only survived because its own
+      // check sits after an `await` long enough for `onAppear` to have run.
+      isViewActive = true
       await loadVideo()
     }
     .onDisappear {
@@ -236,12 +243,16 @@ public struct BunnyStreamPlayer: View {
   @MainActor
   private func loadFromCache(cacheKey: String) async -> Bool {
     guard let cachedVideoURL = VideoCacheManager.shared.getCachedVideoURL(cacheKey: cacheKey) else {
+      print("[BunnyStreamPlayer] Cache miss for key '\(cacheKey)' — streaming instead")
       return false
     }
 
     guard let offlineVideo = VideoCacheManager.shared.getOfflineVideo(cacheKey: cacheKey) else {
+      print("[BunnyStreamPlayer] Cache entry missing metadata for key '\(cacheKey)'")
       return false
     }
+
+    print("[BunnyStreamPlayer] Cache hit for key '\(cacheKey)' — playing offline from \(cachedVideoURL.lastPathComponent)")
 
     var video = Video(
       guid: offlineVideo.videoId,
@@ -261,14 +272,17 @@ public struct BunnyStreamPlayer: View {
     let player = MediaPlayer.makeOffline(url: cachedVideoURL)
     self.player = player
     onPlayerReady?(player)
-    video.adjustLength(player.duration)
 
-    guard isViewActive else {
-      teardownPlayer()
-      return false
-    }
+    // The asset has not loaded yet, so the player reports a duration of 0.
+    // Taking it would discard the real length captured at download time and
+    // leave the scrubber stuck at zero.
+    video.adjustLength(player.duration > 0 ? player.duration : offlineVideo.metadata.duration)
+
+    // No `isViewActive` check here on purpose. Nothing above suspends, so the
+    // view cannot have gone away since `.task` started, and testing the flag
+    // only reintroduces the ordering bug this path used to have.
     loadingState = .loaded(player, video, Heatmap(data: [:]))
-    
+
     return true
   }
 
