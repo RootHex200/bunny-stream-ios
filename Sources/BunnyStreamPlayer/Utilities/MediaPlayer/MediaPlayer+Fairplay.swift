@@ -11,6 +11,8 @@ extension MediaPlayer {
   /// - Parameters:
   ///   - video: A `Video` for the video to be played.
   ///   - cacheKey: Optional cache key for storing/retrieving offline video
+  ///   - referer: Optional Referer for the playlist, segments and licence.
+  ///     Defaults to the embed referer Bunny itself uses.
   ///
   /// - Returns: A `MediaPlayer` instance.
   ///
@@ -19,7 +21,7 @@ extension MediaPlayer {
   /// let player = MediaPlayer.make(video: video)
   /// let offlinePlayer = MediaPlayer.make(video: video, cacheKey: "my_video")
   /// ```
-  static func make(video: Video, cacheKey: String? = nil) -> MediaPlayer {
+  static func make(video: Video, cacheKey: String? = nil, referer: String? = nil) -> MediaPlayer {
     print("[MediaPlayer] Creating player for video GUID: \(video.guid)")
     print("[MediaPlayer] Playlist URL: \(video.playlistUrl ?? "nil")")
     
@@ -33,7 +35,7 @@ extension MediaPlayer {
       print("[MediaPlayer] ERROR: Playlist URL is nil or empty!")
       // Create a dummy URL to prevent crash, but this will fail to play
       let url = URL(string: "https://invalid.url")!
-      let fairPlayHandler = FairPlayStreamHandler(videoId: video.guid, libraryId: video.libraryId)
+      let fairPlayHandler = FairPlayStreamHandler(videoId: video.guid, libraryId: video.libraryId, referer: referer)
       let subtitlesProvider = MediaPlayerSubtitlesProvider(video: video)
       return MediaPlayer(
         url: url,
@@ -46,7 +48,7 @@ extension MediaPlayer {
       print("[MediaPlayer] ERROR: Invalid playlist URL format: \(playlistUrlString)")
       // Create a dummy URL to prevent crash, but this will fail to play
       let url = URL(string: "https://invalid.url")!
-      let fairPlayHandler = FairPlayStreamHandler(videoId: video.guid, libraryId: video.libraryId)
+      let fairPlayHandler = FairPlayStreamHandler(videoId: video.guid, libraryId: video.libraryId, referer: referer)
       let subtitlesProvider = MediaPlayerSubtitlesProvider(video: video)
       return MediaPlayer(
         url: url,
@@ -56,7 +58,7 @@ extension MediaPlayer {
     }
     
     print("[MediaPlayer] Valid URL created: \(url.absoluteString)")
-    let fairPlayHandler = FairPlayStreamHandler(videoId: video.guid, libraryId: video.libraryId)
+    let fairPlayHandler = FairPlayStreamHandler(videoId: video.guid, libraryId: video.libraryId, referer: referer)
     let subtitlesProvider = MediaPlayerSubtitlesProvider(video: video)
     let mediaPlayer = MediaPlayer(
       url: url,
