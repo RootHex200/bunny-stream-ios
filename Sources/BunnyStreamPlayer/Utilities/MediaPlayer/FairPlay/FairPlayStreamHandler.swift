@@ -5,17 +5,24 @@ class FairPlayStreamHandler: NSObject, AVAssetResourceLoaderDelegate {
   private let libraryId: Int
   private let urlSession = URLSession(configuration: .default)
   private var fairPlayURL: URL
+  /// Referer presented for the playlist, the segments and the licence.
+  ///
+  /// Held rather than hard-coded so playback and download present the library
+  /// with the same identity; a caller whose library allows only its own
+  /// referrer would otherwise have one of the two silently refused.
+  private let referer: String
   
-  init(videoId: String, libraryId: Int) {
+  init(videoId: String, libraryId: Int, referer: String? = nil) {
     self.videoId = videoId
     self.libraryId = libraryId
+    self.referer = referer?.trimmed.nonEmpty ?? Constants.defaultReferer
     self.fairPlayURL = URL(string: "\(Constants.videoCoreBaseUrlString)/FairPlayLicense/\(libraryId)/\(videoId)")!
   }
   
   func setupAssetPlayback(url: URL) -> AVPlayerItem {
     let asset = AVURLAsset(url: url, options: [
       "AVURLAssetHTTPHeaderFieldsKey": [
-        "Referer": "https://iframe.mediadelivery.net/"
+        "Referer": referer
       ]
     ])
     asset.resourceLoader.setDelegate(self, queue: DispatchQueue.main)
@@ -65,7 +72,7 @@ private extension FairPlayStreamHandler {
     let spcRequest = SPCRequest(spc: spcData.base64EncodedString())
     request.httpBody = try JSONEncoder().encode(spcRequest)
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.addValue("https://iframe.mediadelivery.net/", forHTTPHeaderField: "Referer")
+    request.addValue(referer, forHTTPHeaderField: "Referer")
     
     let (data, _) = try await urlSession.data(for: request)
     let ckcResponse = try JSONDecoder().decode(CKCResponse.self, from: data)
