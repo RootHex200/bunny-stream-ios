@@ -246,6 +246,10 @@ public class VideoCacheManager: NSObject {
   ///   - libraryId: Library ID
   ///   - playlistUrl: HLS playlist URL
   ///   - metadata: Video metadata
+  ///   - referer: Referer sent with the playlist and every segment request.
+  ///     Defaults to the embed referer Bunny itself uses; pass the library's
+  ///     allowed referrer when "Block direct URL access" is enabled with a
+  ///     custom allow-list.
   /// - Returns: True if download started successfully
   @discardableResult
   public func downloadVideo(
@@ -253,7 +257,8 @@ public class VideoCacheManager: NSObject {
     videoId: String,
     libraryId: Int,
     playlistUrl: String,
-    metadata: OfflineVideo.VideoMetadata
+    metadata: OfflineVideo.VideoMetadata,
+    referer: String? = nil
   ) -> Bool {
     print("[VideoCacheManager] Starting download for cache key: \(cacheKey)")
     
@@ -280,8 +285,24 @@ public class VideoCacheManager: NSObject {
     }
     
     // Create AVURLAsset
-    // For HLS, we use AVURLAsset which handles m3u8 playlists natively
-    let asset = AVURLAsset(url: url)
+    // For HLS, we use AVURLAsset which handles m3u8 playlists natively.
+    //
+    // The CDN has to see the download exactly as it sees playback. A library
+    // with "Block direct URL access" enabled answers the playlist *and every
+    // segment* with 403 unless the Referer is on its allow-list, and the
+    // playback path sets that header (see
+    // `FairPlayStreamHandler.setupAssetPlayback`) while this one used not to —
+    // which is precisely why a video that streams fine still failed to
+    // download. `AVURLAssetHTTPHeaderFieldsKey` is the only hook AVFoundation
+    // offers for this: the aggregate download task issues its own requests, so
+    // a URLSession-level header would never reach them.
+    let refererValue = referer?.trimmed.nonEmpty ?? Constants.defaultReferer
+    let asset = AVURLAsset(url: url, options: [
+      "AVURLAssetHTTPHeaderFieldsKey": [
+        "Referer": refererValue
+      ]
+    ])
+    print("[VideoCacheManager] Downloading with Referer: \(refererValue)")
     
     // Get preferred media selection
     let preferredMediaSelection = asset.preferredMediaSelection
@@ -812,7 +833,12 @@ extension VideoCacheManager: AVAssetDownloadDelegate {
       return
     }
     
-    print("[VideoCacheManager] Download failed for \(cacheKey): \(error.localizedDescription)")
+    // AVFoundation reports an HTTP refusal as a media error, so the raw
+    // message ("cannot open"/"corrupt file") points whoever reads it at the
+    // wrong problem. Classify it before it is published.
+    let downloadError = BunnyDownloadError.classify(error)
+    print("[VideoCacheManager] Download failed for \(cacheKey): \(downloadError.code) — \(downloadError.localizedDescription)")
+    print("[VideoCacheManager] Underlying error: \(error)")
     
     // Update progress with error
     let progress = DownloadProgress(
@@ -821,7 +847,7 @@ extension VideoCacheManager: AVAssetDownloadDelegate {
       progress: 0.0,
       downloadedSize: 0,
       totalSize: 0,
-      error: error
+      error: downloadError
     )
     downloadProgress[cacheKey] = progress
     progressPublisher.send(progress)
