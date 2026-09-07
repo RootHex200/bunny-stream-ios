@@ -212,11 +212,24 @@ public struct BunnyStreamPlayer: View {
 
       guard isViewActive else { return }
 
+      // Hand the resolved config to any download that follows. `/play` has
+      // already returned an authorized playlist URL here, so a download
+      // started moments later needs no second call — which is the call that
+      // fails when the playback token has since lapsed.
+      BunnyPlayConfigCache.shared.put(
+        libraryId: libraryId,
+        videoId: videoId,
+        config: videoConfigResponse,
+        token: token,
+        expires: expires,
+        referer: referer
+      )
+
       var video = Video(response: videoConfigResponse)
       let heatmap = try? await heatmapLoader?.loadHeatmap(videoId: videoId, libraryId: libraryId)
       VideoPlayerConfig(response: videoConfigResponse).map { self.videoConfig = $0 }
 
-      let player = MediaPlayer.make(video: video, cacheKey: cacheKey)
+      let player = MediaPlayer.make(video: video, cacheKey: cacheKey, referer: referer)
       self.player = player
       onPlayerReady?(player)
       video.adjustLength(player.duration)
