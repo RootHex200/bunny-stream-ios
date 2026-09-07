@@ -7,13 +7,18 @@ public struct VideoPlayerConfigLoader {
   func load(libraryId: Int, videoId: String, token: String? = nil, expires: Int? = nil, referer: String? = nil) async throws -> VideoConfigResponse {
     var urlComponents = URLComponents(string: "https://video.bunnycdn.com/library/\(libraryId)/videos/\(videoId)/play")!
     
+    // A blank token is not a token, and a blank referer is not a referer.
+    // Both arrive that way from bridges that hand through an empty text field.
+    let cleanToken = token?.trimmed.nonEmpty
+    let cleanExpires = expires.flatMap { $0 > 0 ? $0 : nil }
+
     // Add token and expires parameters if provided
     var queryItems: [URLQueryItem] = []
-    if let token = token, !token.isEmpty {
-      queryItems.append(URLQueryItem(name: "token", value: token))
+    if let cleanToken = cleanToken {
+      queryItems.append(URLQueryItem(name: "token", value: cleanToken))
     }
-    if let expires = expires {
-      queryItems.append(URLQueryItem(name: "expires", value: String(expires)))
+    if let cleanExpires = cleanExpires {
+      queryItems.append(URLQueryItem(name: "expires", value: String(cleanExpires)))
     }
     
     if !queryItems.isEmpty {
@@ -25,13 +30,22 @@ public struct VideoPlayerConfigLoader {
       throw VideoPlayerError.unknownError
     }
     
-    print("[VideoPlayerConfigLoader] Loading from URL: \(url.absoluteString)")
-    
     var request = URLRequest(url: url)
     request.httpMethod = "GET"
     request.addValue("application/json", forHTTPHeaderField: "Accept")
-    let refererValue = referer ?? "https://iframe.mediadelivery.net/"
+    let refererValue = referer?.trimmed.nonEmpty ?? Constants.defaultReferer
     request.addValue(refererValue, forHTTPHeaderField: "Referer")
+
+    // Log what this request actually presents, not just where it is going. A
+    // 401 on a token-authenticated library has exactly two causes — no pair
+    // sent, or a pair Bunny will not accept — and the URL alone cannot tell
+    // them apart once a reader stops noticing the missing query string.
+    let tokenHint = cleanToken.map { "\($0.prefix(8))… (\($0.count) chars)" } ?? "<none>"
+    print("[VideoPlayerConfigLoader] Loading from URL: \(url.absoluteString)")
+    print("""
+      [VideoPlayerConfigLoader] Auth: token=\(tokenHint) \
+      expires=\(cleanExpires.map(String.init) ?? "<none>") referer=\(refererValue)
+      """)
     
     do {
       print("[VideoPlayerConfigLoader] Making network request...")
@@ -69,6 +83,32 @@ public struct VideoPlayerConfigLoader {
         // a missing token, and worth reporting as such rather than as an
         // unknown failure.
         print("[VideoPlayerConfigLoader] Unauthorized (\(httpResponse.statusCode))")
+        print("[VideoPlayerConfigLoader] Response body: \(String(data: data, encoding: .utf8) ?? "<empty>")")
+        if cleanToken == nil {
+          print("""
+            [VideoPlayerConfigLoader] No token was sent. Library \(libraryId) is \
+            answering 401, which is what a library with Embed View Token \
+            Authentication enabled does for an unsigned /play request — an \
+            AccessKey does not substitute for the token. Whoever constructs the \
+            player (or calls BunnyOfflineManager.downloadVideo) has to pass a \
+            token and the matching expires; empty strings are dropped, which is \
+            why the URL above carries no query string.
+            """)
+        } else if cleanExpires == nil {
+          print("""
+            [VideoPlayerConfigLoader] A token was sent without expires. The token \
+            is SHA256(securityKey + videoId + expires), so Bunny cannot verify it \
+            without the same expires it was signed with.
+            """)
+        } else {
+          print("""
+            [VideoPlayerConfigLoader] The token pair was rejected. It is signed \
+            over (securityKey + videoId + expires), so it fails when any of the \
+            three differs from what Bunny expects: expires already elapsed, \
+            expires sent in milliseconds, a token minted for a different video, \
+            or a different library's security key.
+            """)
+        }
         throw VideoPlayerError.unauthorized
       case 404:
         print("[VideoPlayerConfigLoader] Not found (404)")
