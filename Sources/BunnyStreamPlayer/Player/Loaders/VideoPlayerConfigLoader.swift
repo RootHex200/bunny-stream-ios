@@ -63,8 +63,12 @@ public struct VideoPlayerConfigLoader {
           }
           throw VideoPlayerError.unknownError
         }
-      case 401:
-        print("[VideoPlayerConfigLoader] Unauthorized (401)")
+      case 401, 403:
+        // 403 is what a library with "Block direct URL access" answers when
+        // the Referer is not on its allow-list — the same class of problem as
+        // a missing token, and worth reporting as such rather than as an
+        // unknown failure.
+        print("[VideoPlayerConfigLoader] Unauthorized (\(httpResponse.statusCode))")
         throw VideoPlayerError.unauthorized
       case 404:
         print("[VideoPlayerConfigLoader] Not found (404)")
@@ -93,11 +97,7 @@ public struct VideoPlayerConfigLoader {
 }
 
 
-extension VideoPlayerConfigLoader {
-  enum VideoPlayerError: Error {
-    case unauthorized
-    case notFound
-    case internalServerError
-    case unknownError
-  }
-}
+// The loader used to declare its own nested `VideoPlayerError`, which shadowed
+// the shared one inside this file. Every failure it threw was therefore a type
+// `BunnyStreamPlayer`'s `catch let error as VideoPlayerError` could not match,
+// so a 401 surfaced as the generic reload screen instead of the real reason.
